@@ -1,95 +1,110 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'instructor', middleware: ['instructor'] })
-
-import type { Calificacion } from '~/composables/useInstructorCursos'
-
+import { useCursoDetalle } from '~/composables/useCursoDetalle'
+const { curso, cargarCurso } = useCursoDetalle()
+const { token } = useAuth()
 const route = useRoute()
-const id    = Number(route.params.id)
-const { cursosInstructor, sesiones, calificaciones } = useInstructorCursos()
-
-const curso = computed(() => cursosInstructor.find(c => c.id === id))
-
-// Porcentaje de asistencia por alumno
-const porcentajeAsistencia = (alumnoId: number): number => {
-  const sess = sesiones.value[id] ?? []
-  if (!sess.length) return 0
-  const presentes = sess.filter(s => s.asistencias[alumnoId] === 'asistencia').length
-  return Math.round((presentes / sess.length) * 100)
+const config = useRuntimeConfig()
+const cursoId = Number(route.params.id)
+// Cargamos el curso con sus empleados y asistencias
+onMounted(async () => {
+  cargarCurso(cursoId)
+})
+const estadosConfig: Record<string, { label: string, color: string }> = {
+  EN_CURSO: { 
+    label: 'En curso', 
+    color: 'linear-gradient(135deg, #2B4EF0, #4B7BF5)' 
+  },
+  FINALIZADO: { 
+    label: 'Finalizado', 
+    color: 'linear-gradient(135deg, #4b5563, #6b7280)' 
+  },
+  POR_INSCRIBIR: { 
+    label: 'Por inscribir', 
+    color: 'linear-gradient(135deg, #F59E0B, #D97706)'
+  }
 }
-
-// Calificación actual para un alumno
-const calAlumno = (alumnoId: number): Calificacion | null =>
-  (calificaciones.value[id] ?? {})[alumnoId] ?? null
-
-// Asignar calificación
-const asignar = (alumnoId: number, cal: Calificacion | null) => {
-  const cpy = structuredClone(calificaciones.value)
-  if (!cpy[id]) cpy[id] = {}
-  cpy[id][alumnoId] = cal
-  calificaciones.value = cpy
-}
-
+const configEstado = computed(() => {
+  const estado = curso.value?.estado?.toUpperCase()
+  return estadosConfig[estado] || { label: 'Desconocido', color: '#9ca3af' }
+})
 // Estadísticas
 const stats = computed(() => {
   if (!curso.value) return { aprobados: 0, reprobados: 0, pendientes: 0 }
-  const cals = Object.values(calificaciones.value[id] ?? {})
   return {
-    aprobados:  cals.filter(v => v === 'aprobado').length,
-    reprobados: cals.filter(v => v === 'reprobado').length,
-    pendientes: curso.value.inscritos.length - cals.filter(v => v !== null).length,
+    aprobados:  curso.value?.empleados?.filter((v: any) => v.calificacion === 'APROBADO').length,
+    reprobados: curso.value?.empleados?.filter((v: any) => v.calificacion === 'REPROBADO').length,
+    pendientes: curso.value?.empleados?.filter((v: any) => v.calificacion === null).length,
   }
 })
+const initiales = (nombre: string) => {
+  if (!nombre) return '??';
+  return nombre
+    .split(' ')
+    .filter(palabra => palabra.length > 0)
+    .map(p => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+// Porcentaje de asistencia por alumno
+const porcentajeAsistencia = (alumnoId: number): number => {
+  if (!curso.value?.asistencias) return 0
+  const asistenciasAlumno = curso.value.asistencias.filter(
+    (a: any) => a.usuarioId === alumnoId
+  )
+  if (asistenciasAlumno.length === 0) return 100
+  const puntos = asistenciasAlumno.filter(
+    (a: any) => a.estado === 'ASISTENCIA' || a.estado === 'JUSTIFICADA'
+  ).length
+  const totalSesionesAlumno = asistenciasAlumno.length
+  return Math.round((puntos / totalSesionesAlumno) * 100)
+}
 
-const initiales = (nombre: string) => nombre.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase()
+// Asignar calificación
+const asignar = async (alumnoId: number, cal: string | null, empleadoId: number) => {
+  console.log(`Asignar calificación ${cal} al alumno ${alumnoId} en curso ${cursoId} (empleadoId: ${empleadoId})`)
+  
+  try {
+    const playloas = {
+      id: empleadoId,
+      cursoId: cursoId,
+      usuarioId: alumnoId,
+      calificacion: cal
+    }
+    await $fetch(`${config.public.apiBaseUrl}/instructores/calificar`, {
+        method: 'PATCH',
+        body: playloas,
+        headers: {
+          'Authorization': `Bearer ${token.value}` 
+        }
+    })
+
+    await cargarCurso(cursoId,true)
+  } catch (error) {
+    console.error('Error al cambiar calificacion:', error)
+  }
+}
+
+// Computed para ordenar empleados por apellido
+const empleadosOrdenados = computed(() => {
+  if (!curso.value?.empleados) return []
+
+  return [...curso.value.empleados].sort((a, b) => {
+    const apellidoA = a.usuario.apellidos || ''
+    const apellidoB = b.usuario.apellidos || ''
+    
+    return apellidoA.localeCompare(apellidoB, 'es', { sensitivity: 'base' })
+  })
+})
 
 // Generar constancia individual (mock — reemplazar por llamada real a API/PDF)
 const generarConstancia = (alumnoId: number) => {
-  if (!curso.value) return
-  const alumno = curso.value.inscritos.find(a => a.id === alumnoId)
-  if (!alumno) return
-  const lines = [
-    'INSTITUTO TECNOLÓGICO SUPERIOR DE CAJEME',
-    'CONSTANCIA DE PARTICIPACIÓN',
-    '',
-    `Nombre:       ${alumno.nombre}`,
-    `Departamento: ${alumno.departamento}`,
-    `Correo:       ${alumno.email}`,
-    '',
-    `Curso:        ${curso.value.nombre}`,
-    `Modalidad:    ${curso.value.modalidad}`,
-    `Aula:         ${curso.value.aula}`,
-    `Horario:      ${curso.value.horario}`,
-    `Duración:     ${curso.value.duracion}`,
-    `Período:      ${curso.value.fechaInicio} – ${curso.value.fechaFin}`,
-    '',
-    `Asistencia:   ${porcentajeAsistencia(alumnoId)}%`,
-    `Resultado:    Aprobado`,
-  ]
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
-  const url  = URL.createObjectURL(blob)
-  const a    = Object.assign(document.createElement('a'), {
-    href: url,
-    download: `constancia_${alumno.nombre.replace(/\s+/g, '_')}_${curso.value.nombre.replace(/\s+/g, '_')}.txt`,
-  })
-  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  
 }
-
 // Descargar constancias de todos los aprobados en un ZIP simulado (CSV por ahora)
 const descargarTodas = () => {
-  if (!curso.value) return
-  const aprobados = curso.value.inscritos.filter(a => calAlumno(a.id) === 'aprobado')
-  if (!aprobados.length) return
-  const rows = [['Nombre', 'Departamento', 'Correo', 'Asistencia %', 'Resultado'],
-    ...aprobados.map(a => [a.nombre, a.departamento, a.email, `${porcentajeAsistencia(a.id)}%`, 'Aprobado'])]
-  const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\n')
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-  const a   = Object.assign(document.createElement('a'), {
-    href: url,
-    download: `constancias_${curso.value.nombre.replace(/\s+/g, '_')}.csv`,
-  })
-  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  
 }
 </script>
 
@@ -107,27 +122,27 @@ const descargarTodas = () => {
     <!-- Header + tabs -->
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
       <div class="px-6 py-4 flex items-center justify-between gap-4"
-        :style="curso.estado === 'activo' ? 'background:linear-gradient(135deg,#2B4EF0,#4B7BF5)' : 'background:linear-gradient(135deg,#4b5563,#6b7280)'">
+        :style="`background: ${configEstado.color}`">
         <div>
           <h1 class="text-base font-bold text-white">{{ curso.nombre }}</h1>
-          <p class="text-xs text-white/60 mt-0.5">{{ curso.aula }} · {{ curso.horario }}</p>
+          <p class="text-xs text-white/60 mt-0.5">{{ curso.aula }} · Lun-Vie {{ curso.horaInicio }} - {{ curso.horaFin }}</p>
         </div>
         <span class="shrink-0 text-xs font-bold px-3 py-1 rounded-full bg-white/20 text-white">
-          {{ curso.estado === 'activo' ? 'En curso' : 'Finalizado' }}
+          {{configEstado.label }}
         </span>
       </div>
       <div class="px-6 flex border-b border-gray-100">
-        <NuxtLink :to="`/instructor/cursos/${id}`"
+        <NuxtLink :to="`/instructor/cursos/${cursoId}`"
           class="py-3 mr-6 text-sm font-semibold border-b-2 -mb-px transition"
-          :class="$route.path === `/instructor/cursos/${id}` ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
+          :class="$route.path === `/instructor/cursos/${cursoId}` ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
           Información
         </NuxtLink>
-        <NuxtLink :to="`/instructor/cursos/${id}/asistencia`"
+        <NuxtLink :to="`/instructor/cursos/${cursoId}/asistencia`"
           class="py-3 mr-6 text-sm font-semibold border-b-2 -mb-px transition"
           :class="$route.path.endsWith('/asistencia') ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
           Asistencia
         </NuxtLink>
-        <NuxtLink :to="`/instructor/cursos/${id}/calificaciones`"
+        <NuxtLink :to="`/instructor/cursos/${cursoId}/calificaciones`"
           class="py-3 text-sm font-semibold border-b-2 -mb-px transition"
           :class="$route.path.endsWith('/calificaciones') ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
           Calificaciones
@@ -157,7 +172,7 @@ const descargarTodas = () => {
         <div>
           <h2 class="text-sm font-bold text-gray-800">Evaluación de alumnos</h2>
           <p class="text-xs text-gray-400 mt-0.5">
-            Asistencia calculada de {{ (sesiones[id] ?? []).length }} sesión{{ (sesiones[id] ?? []).length !== 1 ? 'es' : '' }} registrada{{ (sesiones[id] ?? []).length !== 1 ? 's' : '' }}.
+            Asistencia calculada de {{ (curso.asistencias?.length/curso.empleados?.length) || 0 }} sesión{{ curso.asistencias?.length !== 1 ? 'es' : '' }} registrada{{ curso.asistencias?.length !== 1 ? 's' : '' }}.
           </p>
         </div>
         <button v-if="stats.aprobados > 0" @click="descargarTodas"
@@ -171,46 +186,46 @@ const descargarTodas = () => {
       </div>
 
       <div class="divide-y divide-gray-50">
-        <div v-for="alumno in curso.inscritos" :key="alumno.id"
+        <div v-for="alumno in empleadosOrdenados" :key="alumno.id"
           class="flex flex-col sm:flex-row sm:items-center gap-4 px-6 py-4 hover:bg-gray-50/50 transition">
 
           <!-- Alumno -->
           <div class="flex items-center gap-3 flex-1 min-w-0">
             <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0"
               style="background:linear-gradient(135deg,#4B7BF5,#2B4EF0)">
-              {{ initiales(alumno.nombre) }}
+              {{ initiales(alumno.usuario.apellidos + ' ' + alumno.usuario.nombres) }}
             </div>
             <div class="min-w-0">
-              <p class="text-sm font-semibold text-gray-900 truncate">{{ alumno.nombre }}</p>
-              <p class="text-xs text-gray-400">{{ alumno.departamento }}</p>
+              <p class="text-sm font-semibold text-gray-900 truncate">{{ alumno.usuario.apellidos }} {{ alumno.usuario.nombres }}</p>
+              <p class="text-xs text-gray-400">{{ alumno.usuario.adscripcion.clave }}</p>
             </div>
           </div>
 
           <!-- % Asistencia -->
-          <div class="sm:w-36 shrink-0">
+          <div v-if="curso.estado !== 'POR_INSCRIBIR'" class="sm:w-36 shrink-0">
             <div class="flex items-center justify-between mb-1">
               <span class="text-[11px] text-gray-400">Asistencia</span>
-              <span class="text-[11px] font-bold" :class="porcentajeAsistencia(alumno.id) >= 80 ? 'text-green-600' : porcentajeAsistencia(alumno.id) >= 60 ? 'text-yellow-600' : 'text-red-500'">
-                {{ porcentajeAsistencia(alumno.id) }}%
+              <span class="text-[11px] font-bold" :class="porcentajeAsistencia(alumno.usuario.id) >= 80 ? 'text-green-600' : porcentajeAsistencia(alumno.usuario.id) >= 60 ? 'text-yellow-600' : 'text-red-500'">
+                {{ porcentajeAsistencia(alumno.usuario.id) }}%
               </span>
             </div>
             <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
               <div class="h-full rounded-full transition-all duration-500"
                 :style="{
-                  width: `${porcentajeAsistencia(alumno.id)}%`,
-                  background: porcentajeAsistencia(alumno.id) >= 80 ? '#22c55e' : porcentajeAsistencia(alumno.id) >= 60 ? '#f59e0b' : '#ef4444'
+                  width: `${porcentajeAsistencia(alumno.usuario.id)}%`,
+                  background: porcentajeAsistencia(alumno.usuario.id) >= 80 ? '#22c55e' : porcentajeAsistencia(alumno.usuario.id) >= 60 ? '#f59e0b' : '#ef4444'
                 }"></div>
             </div>
           </div>
 
           <!-- Calificación actual + acciones -->
-          <div class="flex items-center gap-2 sm:ml-2 shrink-0">
+          <div v-if="curso.estado !== 'POR_INSCRIBIR'" class="flex items-center gap-2 sm:ml-2 shrink-0">
             <!-- Estado chip si ya está asignado -->
-            <span v-if="calAlumno(alumno.id) === 'aprobado'"
+            <span v-if="alumno.calificacion === 'APROBADO'"
               class="text-xs font-bold px-3 py-1.5 rounded-full bg-green-100 text-green-700">
               ✓ Aprobado
             </span>
-            <span v-else-if="calAlumno(alumno.id) === 'reprobado'"
+            <span v-else-if="alumno.calificacion === 'REPROBADO'"
               class="text-xs font-bold px-3 py-1.5 rounded-full bg-red-100 text-red-600">
               ✗ Reprobado
             </span>
@@ -219,20 +234,20 @@ const descargarTodas = () => {
             </span>
 
             <!-- Botones de calificación o constancia -->
-            <template v-if="calAlumno(alumno.id) === null">
-              <button @click="asignar(alumno.id, 'aprobado')"
+            <template v-if="!alumno.calificacion">
+              <button @click="asignar(alumno.usuario.id, 'APROBADO', alumno.id)"
                 class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white hover:brightness-110 transition"
                 style="background:linear-gradient(135deg,#3ECFB2,#2fbfa3)">
                 Aprobar
               </button>
-              <button @click="asignar(alumno.id, 'reprobado')"
+              <button @click="asignar(alumno.usuario.id, 'REPROBADO', alumno.id)"
                 class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-red-200 text-red-500 hover:bg-red-50 transition">
                 Reprobar
               </button>
             </template>
             <template v-else>
               <!-- Constancia si está aprobado -->
-              <button v-if="calAlumno(alumno.id) === 'aprobado'" @click="generarConstancia(alumno.id)"
+              <button v-if="alumno.calificacion === 'APROBADO'" @click="generarConstancia(alumno.usuario.id)"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white hover:brightness-110 transition"
                 style="background:linear-gradient(135deg,#4B7BF5,#2B4EF0)">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,7 +255,7 @@ const descargarTodas = () => {
                 </svg>
                 Constancia
               </button>
-              <button @click="asignar(alumno.id, null)"
+              <button @click="asignar(alumno.usuario.id, null, alumno.id)"
                 class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border border-gray-200 text-gray-400 hover:bg-gray-50 transition">
                 Cambiar
               </button>

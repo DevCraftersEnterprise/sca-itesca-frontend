@@ -1,16 +1,40 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'instructor', middleware: ['instructor'] })
-
-const { cursosInstructor } = useInstructorCursos()
-
-const activos    = computed(() => cursosInstructor.filter(c => c.estado === 'activo'))
-const finalizados = computed(() => cursosInstructor.filter(c => c.estado === 'finalizado'))
+const config = useRuntimeConfig()
+const { token } = useAuth()
 
 const modalidadBadge: Record<string, string> = {
-  Presencial: 'bg-green-100 text-green-700',
-  Online:     'bg-blue-100 text-blue-600',
+  PRESENCIAL: 'bg-green-100 text-green-700',
+  ONLINE:     'bg-blue-100 text-blue-600',
   Híbrido:    'bg-purple-100 text-purple-600',
 }
+const formatDate = (date: string | Date) => {
+  if (!date) return 'Sin fecha';
+  return new Date(date).toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+};
+const { data: cursos, pending, error } = await useAsyncData(
+  'mis-cursos', 
+  () => fetchMisCursos(config, token.value),
+  {
+    watch: [token], // Si el token cambia, se refresca solo
+    server: false   // Como dependemos de un token del cliente, lo dejamos en false
+  }
+)
+
+const activos = computed(() => {
+  return cursos.value?.filter((curso: any) => {
+    return curso.estado === 'EN_CURSO' || curso.estado === 'POR_INSCRIBIR'
+  })
+})
+const finalizados = computed(() => {
+  return cursos.value?.filter((curso: any) => {
+    return curso.estado === 'FINALIZADO'
+  })
+})
 </script>
 
 <template>
@@ -20,12 +44,12 @@ const modalidadBadge: Record<string, string> = {
       <h1 class="text-2xl font-bold text-gray-900 mb-1">Cursos que imparto</h1>
       <p class="text-sm text-gray-400">
         {{ new Date().getFullYear() }} ·
-        {{ cursosInstructor.length }} curso{{ cursosInstructor.length !== 1 ? 's' : '' }} asignado{{ cursosInstructor.length !== 1 ? 's' : '' }}
+        {{ activos?.length }} curso{{ activos?.length !== 1 ? 's' : '' }} asignado{{ activos?.length !== 1 ? 's' : '' }}
       </p>
     </div>
 
     <!-- ══ Activos ══ -->
-    <section v-if="activos.length > 0" class="mb-10">
+    <section v-if="activos?.length > 0" class="mb-10">
       <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-[#4B7BF5]"></span>
         En curso
@@ -39,7 +63,7 @@ const modalidadBadge: Record<string, string> = {
           <div class="px-5 py-4" style="background:linear-gradient(135deg,#2B4EF0,#4B7BF5)">
             <p class="text-xs text-white/70 mb-0.5">Interno · Activo</p>
             <h3 class="text-base font-bold text-white leading-snug">{{ c.nombre }}</h3>
-            <p class="text-xs text-white/60 mt-1">{{ c.fechaInicio }} – {{ c.fechaFin }}</p>
+            <p class="text-xs text-white/60 mt-1">{{ formatDate(c.fechaInicio) }} – {{ formatDate(c.fechaFin) }}</p>
           </div>
 
           <div class="flex-1 p-5 space-y-3">
@@ -56,16 +80,16 @@ const modalidadBadge: Record<string, string> = {
               </div>
               <div class="bg-gray-50 rounded-xl p-2.5">
                 <p class="text-gray-400 mb-1">Duración</p>
-                <p class="font-semibold text-gray-800">{{ c.duracion }}</p>
+                <p class="font-semibold text-gray-800">{{ c.duracionHrs }} hrs</p>
               </div>
               <div class="bg-gray-50 rounded-xl p-2.5">
                 <p class="text-gray-400 mb-1">Inscritos</p>
-                <p class="font-semibold text-gray-800">{{ c.inscritos.length }} alumnos</p>
+                <p class="font-semibold text-gray-800">{{ c.empleados.length }} alumnos</p>
               </div>
             </div>
 
             <p class="text-xs text-gray-400">
-              <span class="font-medium text-gray-600">Horario: </span>{{ c.horario }}
+              <span class="font-medium text-gray-600">Horario: </span>{{ c.horaInicio }} - {{ c.horaFin }}
             </p>
           </div>
 
@@ -91,7 +115,7 @@ const modalidadBadge: Record<string, string> = {
     </section>
 
     <!-- ══ Finalizados ══ -->
-    <section v-if="finalizados.length > 0">
+    <section v-if="finalizados?.length > 0">
       <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-gray-300"></span>
         Finalizados
@@ -105,7 +129,7 @@ const modalidadBadge: Record<string, string> = {
           <div class="px-5 py-4" style="background:linear-gradient(135deg,#4b5563,#6b7280)">
             <p class="text-xs text-white/70 mb-0.5">Interno · Finalizado</p>
             <h3 class="text-base font-bold text-white leading-snug">{{ c.nombre }}</h3>
-            <p class="text-xs text-white/60 mt-1">{{ c.fechaInicio }} – {{ c.fechaFin }}</p>
+            <p class="text-xs text-white/60 mt-1">{{ formatDate(c.fechaInicio) }} – {{ formatDate(c.fechaFin) }}</p>
           </div>
 
           <div class="flex-1 p-5 space-y-3">
@@ -126,7 +150,7 @@ const modalidadBadge: Record<string, string> = {
               </div>
               <div class="bg-gray-50 rounded-xl p-2.5">
                 <p class="text-gray-400 mb-1">Inscritos</p>
-                <p class="font-semibold text-gray-800">{{ c.inscritos.length }} alumnos</p>
+                <p class="font-semibold text-gray-800">{{ c.empleados.length }} alumnos</p>
               </div>
             </div>
           </div>
@@ -145,7 +169,7 @@ const modalidadBadge: Record<string, string> = {
     </section>
 
     <!-- Empty -->
-    <div v-if="cursosInstructor.length === 0" class="flex flex-col items-center justify-center py-20 text-center bg-white rounded-2xl border border-gray-100 shadow-sm">
+    <div v-if="cursos?.length === 0" class="flex flex-col items-center justify-center py-20 text-center bg-white rounded-2xl border border-gray-100 shadow-sm">
       <div class="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
         <svg class="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>

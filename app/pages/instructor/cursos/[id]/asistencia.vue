@@ -1,87 +1,221 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'instructor', middleware: ['instructor'] })
-
-import type { TipoAsistencia } from '~/composables/useInstructorCursos'
-
+import { useCursoDetalle } from '~/composables/useCursoDetalle'
+const { curso, cargarCurso } = useCursoDetalle()
+const { token } = useAuth()
 const route = useRoute()
-const id    = Number(route.params.id)
-const { cursosInstructor, sesiones } = useInstructorCursos()
-
-const curso        = computed(() => cursosInstructor.find(c => c.id === id))
-const misSesiones  = computed(() => sesiones.value[id] ?? [])
-
-// Sesión activa — por defecto la última
-const sesionActiva = ref<string | null>(null)
-watchEffect(() => {
-  if (!sesionActiva.value && misSesiones.value.length > 0)
-    sesionActiva.value = misSesiones.value[misSesiones.value.length - 1].id
+const config = useRuntimeConfig()
+const cursoId = Number(route.params.id)
+// Cargamos el curso con sus empleados y asistencias
+onMounted(async () => {
+  await cargarCurso(cursoId)
 })
-const sesion = computed(() => misSesiones.value.find(s => s.id === sesionActiva.value) ?? null)
-
-// Resumen de la sesión activa
-const resumen = computed(() => {
-  if (!sesion.value) return { presentes: 0, ausentes: 0, justificadas: 0 }
-  const vals = Object.values(sesion.value.asistencias)
-  return {
-    presentes:    vals.filter(v => v === 'asistencia').length,
-    ausentes:     vals.filter(v => v === 'inasistencia').length,
-    justificadas: vals.filter(v => v === 'justificada').length,
+// Configuración de estados
+const estadosConfig: Record<string, { label: string, color: string }> = {
+  EN_CURSO: { 
+    label: 'En curso', 
+    color: 'linear-gradient(135deg, #2B4EF0, #4B7BF5)' 
+  },
+  FINALIZADO: { 
+    label: 'Finalizado', 
+    color: 'linear-gradient(135deg, #4b5563, #6b7280)' 
+  },
+  POR_INSCRIBIR: { 
+    label: 'Por inscribir', 
+    color: 'linear-gradient(135deg, #F59E0B, #D97706)'
   }
-})
-
-// Cambiar estado de asistencia de un alumno
-const setEstado = (alumnoId: number, estado: TipoAsistencia) => {
-  const cpy = structuredClone(sesiones.value)
-  const idx = (cpy[id] ?? []).findIndex(s => s.id === sesionActiva.value)
-  if (idx === -1) return
-  cpy[id][idx].asistencias[alumnoId] = estado
-  sesiones.value = cpy
 }
-
+const configEstado = computed(() => {
+  const estado = curso.value?.estado?.toUpperCase()
+  return estadosConfig[estado] || { label: 'Desconocido', color: '#9ca3af' }
+})
+const estadoCfg: Record<any, { label: string; activeClass: string; inactiveClass: string }> = {
+  ASISTENCIA:   { label: 'Asistencia',   activeClass: 'bg-green-500 text-white border-green-500',   inactiveClass: 'border-gray-200 text-gray-500 hover:border-green-300 hover:text-green-600' },
+  FALTA: { label: 'Inasistencia', activeClass: 'bg-red-500 text-white border-red-500',       inactiveClass: 'border-gray-200 text-gray-500 hover:border-red-300 hover:text-red-500'   },
+  JUSTIFICADA:  { label: 'Justificada',  activeClass: 'bg-yellow-400 text-yellow-900 border-yellow-400', inactiveClass: 'border-gray-200 text-gray-500 hover:border-yellow-300 hover:text-yellow-600' },
+}
+// Función para formatear fechas
+const formatDate = (date: string | Date) => {
+  if (!date) return 'Sin fecha';
+  const dateStr = date.toString();
+  const fechaParte = dateStr.split(/T| /)[0];
+  if (!fechaParte) return 'Fecha inválida';
+  const [year, month, day] = fechaParte.split('-');
+  if (!year || !month || !day) return 'Formato inválido';
+  return `${day}/${month}/${year}`;
+};
+// Función para obtener iniciales de un nombre
+const initiales = (nombre?: string) => {
+  if (!nombre) return '??'
+  return nombre.split(' ').filter(p => p.length > 0).map(p => p[0]).slice(0, 2).join('').toUpperCase()
+}
 // Nueva sesión
 const pickFecha    = ref(false)
 const nuevaFecha   = ref(new Date().toISOString().slice(0, 10))
-const agregarSesion = () => {
+const agregarSesion = async () => {
   const fid = nuevaFecha.value
-  if (misSesiones.value.find(s => s.id === fid)) { pickFecha.value = false; sesionActiva.value = fid; return }
-  const d = new Date(fid + 'T12:00:00')
-  const label = d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
-  const asistenciasDefault: Record<number, TipoAsistencia> = {}
-  curso.value?.inscritos.forEach(i => { asistenciasDefault[i.id] = 'asistencia' })
-  const cpy = structuredClone(sesiones.value)
-  if (!cpy[id]) cpy[id] = []
-  cpy[id] = [...cpy[id], { id: fid, fecha: label, asistencias: asistenciasDefault }]
-  sesiones.value = cpy
-  sesionActiva.value = fid
-  pickFecha.value = false
+  console.log('Agregar sesión para fecha:', fid)
+  try {
+    const playloas = {
+      cursoId: cursoId,
+      fecha: fid,
+      usuarioIds: Array.isArray(curso.value?.empleados) ? curso.value.empleados.map((e: any) => e.usuario.id) : []
+    }
+    await $fetch(`${config.public.apiBaseUrl}/instructores/asistencia-hoy`, {
+      method: 'POST',
+      body: playloas,
+      headers: {
+        'Authorization': `Bearer ${token.value}` 
+      }
+    })
+    console.log('ANTES:', curso.value.asistencias.length)
+
+    await cargarCurso(cursoId,true)
+
+    console.log('DESPUÉS:', curso.value.asistencias.length)
+    curso.value = { ...curso.value }
+
+    const ultima = curso.value?.asistencias
+      ?.slice()
+      .sort((a: any, b: any) => b.id - a.id)[0]
+
+    if (ultima) {
+      const fecha = ultima.fecha.split('T')[0]
+      sesionActiva.value = fecha
+    }
+    pickFecha.value = false
+  } catch (error) {
+    console.error('Error al agregar sesión:', error)
+  }
 }
+
+
+
+
+// Sesión activa
+const ultimoRegistroAsistencia = computed(() => {
+  const todas = curso.value?.asistencias || []
+  if (todas.length === 0) return null
+  const ordenadas = [...todas].sort((a: any, b: any) =>
+    b.id - a.id
+  )
+  return {
+    id: ordenadas[0].id,
+    fecha: ordenadas[0].fecha,
+    estado: ordenadas[0].estado,
+    usuarioId: ordenadas[0].usuarioId
+  }
+})
+const sesionSeleccionadaId = ref<string | null>(null)
+const sesionActiva = computed({
+  get() {
+    if (sesionSeleccionadaId.value) return sesionSeleccionadaId.value
+    const fechas = Object.keys(asistenciasOrdenadas.value)
+    return fechas[fechas.length - 1] || null
+  },
+  set(val: string | null) {
+    sesionSeleccionadaId.value = val
+  }
+  
+})
+const sesion = computed(() => {
+   if (!sesionActiva.value) return []
+  return asistenciasOrdenadas.value[sesionActiva.value] || []
+})
+
+// Helpers
+
+
+const asistenciasPorFecha = computed(() => {
+  const asistencias = curso.value?.asistencias || []
+
+  return asistencias.reduce((acc: Record<string, any[]>, item: any) => {
+    const fecha = item.fecha.split('T')[0]
+
+    if (!acc[fecha]) {
+      acc[fecha] = []
+    }
+
+    acc[fecha].push(item)
+
+    return acc
+  }, {})
+})
+
+const asistenciasOrdenadas = computed(() => {
+  return Object.keys(asistenciasPorFecha.value)
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+    .reduce((acc: Record<string, any[]>, fecha: string) => {
+      acc[fecha] = asistenciasPorFecha.value[fecha]
+      return acc
+    }, {})
+})
+
+// Resumen de la sesión activa
+const resumen = computed(() => {
+  if (!sesion.value.length) {
+    return { presentes: 0, ausentes: 0, justificadas: 0 }
+  }
+
+  return {
+    presentes: sesion.value.filter((v: any) => v.estado === 'ASISTENCIA').length,
+    ausentes: sesion.value.filter((v: any) => v.estado === 'FALTA').length,
+    justificadas: sesion.value.filter((v: any) => v.estado === 'JUSTIFICADA').length,
+  }
+})
+const obtenerEstadoBoton = (alumnoId: number) => {
+  // Buscamos en la sesión activa el estado de este alumno
+  const registro = sesion.value.find((a: any) => a.usuarioId === alumnoId)
+  return registro?.estado || null
+}
+// Cambiar estado de asistencia de un alumno
+const setEstado = async (alumnoId: number, estado: any) => {
+  const registro = sesion.value.find((a: any) => a.usuarioId === alumnoId)
+  if (!registro) {
+    console.warn('No hay registro para este alumno en esta sesión')
+    return
+  }
+  try {
+    const playloas = {
+      id: registro?.id,
+      cursoId: cursoId,
+      usuarioId: alumnoId,
+      estado: estado
+    }
+    await $fetch(`${config.public.apiBaseUrl}/instructores/asistencia`, {
+        method: 'PATCH',
+        body: playloas,
+        headers: {
+          'Authorization': `Bearer ${token.value}` 
+        }
+      })
+
+    await cargarCurso(cursoId,true)
+  } catch (error) {
+    console.error('Error al cambiar estado de asistencia:', error)
+  }
+}
+
+
 
 // Exportar CSV
 const exportar = () => {
-  if (!curso.value) return
-  const rows = [['Nombre', 'Departamento', ...misSesiones.value.map(s => s.fecha)]]
-  for (const a of curso.value.inscritos)
-    rows.push([a.nombre, a.departamento, ...misSesiones.value.map(s => s.asistencias[a.id] ?? '—')])
-  const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\n')
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-  const a   = Object.assign(document.createElement('a'), { href: url, download: `asistencia_${curso.value.nombre.replace(/\s+/g, '_')}.csv` })
-  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  
 }
 
-// Helpers
-const initiales = (nombre: string) => nombre.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase()
+// Computed para ordenar empleados por apellido
+const empleadosOrdenados = computed(() => {
+  if (!curso.value?.empleados) return []
 
-const estadoCfg: Record<TipoAsistencia, { label: string; activeClass: string; inactiveClass: string }> = {
-  asistencia:   { label: 'Asistencia',   activeClass: 'bg-green-500 text-white border-green-500',   inactiveClass: 'border-gray-200 text-gray-500 hover:border-green-300 hover:text-green-600' },
-  inasistencia: { label: 'Inasistencia', activeClass: 'bg-red-500 text-white border-red-500',       inactiveClass: 'border-gray-200 text-gray-500 hover:border-red-300 hover:text-red-500'   },
-  justificada:  { label: 'Justificada',  activeClass: 'bg-yellow-400 text-yellow-900 border-yellow-400', inactiveClass: 'border-gray-200 text-gray-500 hover:border-yellow-300 hover:text-yellow-600' },
-}
+  return [...curso.value.empleados].sort((a, b) => {
+    const apellidoA = a.usuario.apellidos || ''
+    const apellidoB = b.usuario.apellidos || ''
+    
+    return apellidoA.localeCompare(apellidoB, 'es', { sensitivity: 'base' })
+  })
+})
 
-const countEnSesion = (s: typeof misSesiones.value[number]) => {
-  const vals = Object.values(s.asistencias)
-  return vals.filter(v => v === 'asistencia').length
-}
+
 </script>
 
 <template>
@@ -98,27 +232,27 @@ const countEnSesion = (s: typeof misSesiones.value[number]) => {
     <!-- Header + tabs -->
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-6">
       <div class="px-6 py-4 flex items-center justify-between gap-4"
-        :style="curso.estado === 'activo' ? 'background:linear-gradient(135deg,#2B4EF0,#4B7BF5)' : 'background:linear-gradient(135deg,#4b5563,#6b7280)'">
+        :style="`background: ${configEstado.color}`">
         <div>
           <h1 class="text-base font-bold text-white">{{ curso.nombre }}</h1>
-          <p class="text-xs text-white/60 mt-0.5">{{ curso.aula }} · {{ curso.horario }}</p>
+          <p class="text-xs text-white/60 mt-0.5">{{ curso.aula }} · Lun-Vie {{ curso.horaInicio }} - {{ curso.horaFin }}</p>
         </div>
         <span class="shrink-0 text-xs font-bold px-3 py-1 rounded-full bg-white/20 text-white">
-          {{ curso.estado === 'activo' ? 'En curso' : 'Finalizado' }}
+          {{ configEstado.label }}
         </span>
       </div>
       <div class="px-6 flex border-b border-gray-100">
-        <NuxtLink :to="`/instructor/cursos/${id}`"
+        <NuxtLink :to="`/instructor/cursos/${cursoId}`"
           class="py-3 mr-6 text-sm font-semibold border-b-2 -mb-px transition"
-          :class="$route.path === `/instructor/cursos/${id}` ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
+          :class="$route.path === `/instructor/cursos/${cursoId}` ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
           Información
         </NuxtLink>
-        <NuxtLink :to="`/instructor/cursos/${id}/asistencia`"
+        <NuxtLink :to="`/instructor/cursos/${cursoId}/asistencia`"
           class="py-3 mr-6 text-sm font-semibold border-b-2 -mb-px transition"
           :class="$route.path.endsWith('/asistencia') ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
           Asistencia
         </NuxtLink>
-        <NuxtLink :to="`/instructor/cursos/${id}/calificaciones`"
+        <NuxtLink :to="`/instructor/cursos/${cursoId}/calificaciones`"
           class="py-3 text-sm font-semibold border-b-2 -mb-px transition"
           :class="$route.path.endsWith('/calificaciones') ? 'border-[#4B7BF5] text-[#4B7BF5]' : 'border-transparent text-gray-400 hover:text-gray-600'">
           Calificaciones
@@ -129,16 +263,16 @@ const countEnSesion = (s: typeof misSesiones.value[number]) => {
     <!-- ── Barra superior: selector de sesiones + acciones ── -->
     <div class="flex flex-wrap items-center gap-2 mb-6">
       <!-- Chips de sesiones -->
-      <button v-for="s in misSesiones" :key="s.id"
-        @click="sesionActiva = s.id"
+      <button v-for="(registros, fecha) in asistenciasOrdenadas" :key="fecha"
+        @click="sesionActiva = fecha"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition"
-        :class="sesionActiva === s.id
+        :class="sesionActiva === fecha
           ? 'bg-[#4B7BF5] text-white border-[#4B7BF5] shadow-sm'
           : 'bg-white text-gray-600 border-gray-200 hover:border-[#4B7BF5] hover:text-[#4B7BF5]'">
-        {{ s.fecha }}
+        {{ formatDate(fecha) }}
         <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-          :class="sesionActiva === s.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'">
-          {{ countEnSesion(s) }}/{{ curso.inscritos.length }}
+          :class="sesionActiva === fecha ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'">
+          {{ curso.asistencias.length }}/{{ curso.empleados.length }}
         </span>
       </button>
 
@@ -146,23 +280,53 @@ const countEnSesion = (s: typeof misSesiones.value[number]) => {
 
       <!-- Nueva sesión -->
       <div class="relative">
-        <button @click="pickFecha = !pickFecha"
+        <!-- Nueva sesión -->
+        <button @click="pickFecha = true"
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-dashed border-gray-300 text-gray-500 hover:border-[#4B7BF5] hover:text-[#4B7BF5] transition">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
           </svg>
           Nueva sesión
         </button>
-        <!-- Date picker dropdown -->
-        <Transition enter-active-class="transition duration-150 ease-out" enter-from-class="opacity-0 scale-95" enter-to-class="opacity-100 scale-100"
-                    leave-active-class="transition duration-100" leave-from-class="opacity-100 scale-100" leave-to-class="opacity-0 scale-95">
-          <div v-if="pickFecha" class="absolute right-0 top-full mt-2 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 z-10 w-64">
-            <p class="text-xs font-semibold text-gray-500 mb-2">Fecha de la sesión</p>
-            <input v-model="nuevaFecha" type="date"
-              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4B7BF5] mb-3"/>
-            <div class="flex gap-2">
-              <button @click="pickFecha = false" class="flex-1 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50 transition">Cancelar</button>
-              <button @click="agregarSesion" class="flex-1 py-2 rounded-xl text-xs font-semibold text-white hover:brightness-110 transition" style="background:linear-gradient(135deg,#2B4EF0,#4B7BF5)">Agregar</button>
+
+        <Transition
+          enter-active-class="transition duration-150 ease-out"
+          enter-from-class="opacity-0 scale-95"
+          enter-to-class="opacity-100 scale-100"
+          leave-active-class="transition duration-100"
+          leave-from-class="opacity-100 scale-100"
+          leave-to-class="opacity-0 scale-95"
+        >
+          <div v-if="pickFecha"
+              class="fixed inset-0 z-50 flex items-center justify-center">
+
+            <!-- Fondo oscuro -->
+            <div class="absolute inset-0 bg-black/40"
+                @click="pickFecha = false"></div>
+
+            <!-- Modal -->
+            <div class="relative bg-white rounded-2xl shadow-xl border border-gray-100 p-5 w-80">
+
+              <p class="text-sm font-semibold text-gray-700 mb-3">
+                Fecha de la sesión
+              </p>
+
+              <input v-model="nuevaFecha" type="date"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#4B7BF5] mb-4"/>
+
+              <div class="flex gap-2">
+                <button @click="pickFecha = false"
+                  class="flex-1 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-500 hover:bg-gray-50 transition">
+                  Cancelar
+                </button>
+
+                <button @click="agregarSesion"
+                  class="flex-1 py-2 rounded-xl text-xs font-semibold text-white hover:brightness-110 transition"
+                  style="background:linear-gradient(135deg,#2B4EF0,#4B7BF5)">
+                  Agregar
+                </button>
+              </div>
+
             </div>
           </div>
         </Transition>
@@ -179,13 +343,13 @@ const countEnSesion = (s: typeof misSesiones.value[number]) => {
     </div>
 
     <!-- ── Sesión activa ── -->
-    <div v-if="sesion" class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div v-if="Object.keys(asistenciasOrdenadas).length > 0" class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
 
       <!-- Header de la sesión -->
       <div class="px-6 py-4 border-b border-gray-50 flex items-center justify-between flex-wrap gap-3">
         <div>
           <p class="text-xs text-gray-400 mb-0.5">Lista de asistencia</p>
-          <h2 class="text-base font-bold text-gray-900">Sesión del {{ sesion.fecha }}</h2>
+          <h2 v-if="sesionActiva" class="text-base font-bold text-gray-900">Sesión del {{ formatDate(sesionActiva) }}</h2>
         </div>
         <!-- Resumen rápido -->
         <div class="flex items-center gap-4 text-xs">
@@ -206,27 +370,27 @@ const countEnSesion = (s: typeof misSesiones.value[number]) => {
 
       <!-- Lista de alumnos -->
       <div class="divide-y divide-gray-50">
-        <div v-for="alumno in curso.inscritos" :key="alumno.id"
+        <div v-for="alumno in empleadosOrdenados" :key="alumno.id"
           class="flex flex-col sm:flex-row sm:items-center gap-3 px-6 py-4 hover:bg-gray-50/50 transition">
 
           <!-- Alumno info -->
           <div class="flex items-center gap-3 flex-1 min-w-0">
             <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0"
               style="background:linear-gradient(135deg,#4B7BF5,#2B4EF0)">
-              {{ initiales(alumno.nombre) }}
+              {{ initiales(alumno.usuario.apellidos + ' ' + alumno.usuario.nombres) }}
             </div>
             <div class="min-w-0">
-              <p class="text-sm font-semibold text-gray-900 truncate">{{ alumno.nombre }}</p>
-              <p class="text-xs text-gray-400">{{ alumno.departamento }} · {{ alumno.email }}</p>
+              <p class="text-sm font-semibold text-gray-900 truncate">{{ alumno.usuario.apellidos }} {{ alumno.usuario.nombres }}</p>
+              <p class="text-xs text-gray-400">{{ alumno.usuario.adscripcion.clave }} · {{ alumno.usuario.correo }}</p>
             </div>
           </div>
 
           <!-- Botones de estado -->
           <div class="flex gap-2 sm:ml-4">
             <button v-for="(cfg, estado) in estadoCfg" :key="estado"
-              @click="setEstado(alumno.id, estado as TipoAsistencia)"
+              @click="setEstado(alumno.usuario.id, estado)"
               class="px-3 py-2 rounded-xl text-xs font-semibold border transition"
-              :class="sesion.asistencias[alumno.id] === estado ? cfg.activeClass : cfg.inactiveClass">
+              :class="obtenerEstadoBoton(alumno.usuario.id) === estado ? cfg.activeClass : cfg.inactiveClass">
               {{ cfg.label }}
             </button>
           </div>
@@ -246,7 +410,7 @@ const countEnSesion = (s: typeof misSesiones.value[number]) => {
     </div>
 
   </div>
-
+  <!-- Curso no encontrado -->
   <div v-else class="flex flex-col items-center justify-center py-20 text-center">
     <p class="text-sm font-semibold text-gray-400">Curso no encontrado</p>
     <NuxtLink to="/instructor" class="mt-3 text-xs text-[#4B7BF5] hover:underline">← Volver</NuxtLink>

@@ -1,6 +1,6 @@
 // Solo permite acceso a usuarios con rol 'admin'
 export default defineNuxtRouteMiddleware(() => {
-  const { isAuthenticated, rol } = useAuth()
-  if (!isAuthenticated.value) return navigateTo('/login')
-  if (rol.value !== 'admin') return navigateTo('/login')
+  const { token, rol } = useAuth()
+  if (!token.value) return navigateTo('/login')
+  if (!rol.value || rol.value !== 'ADMIN') return navigateTo('/login')
 })

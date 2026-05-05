@@ -1,130 +1,94 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: ['admin'] })
+const { user } = useAuth()
+import { useCursoDetalle } from '~/composables/useCursoDetalle'
+const { curso, cargarCurso, cargando } = useCursoDetalle()
 
 const route = useRoute()
 const cursoId = Number(route.params.id)
+await useAsyncData(`curso-${cursoId}`, async () => {
+  await cargarCurso(cursoId)
+  return true
+})
+// Helpers visuales
+const modalidadBadge: Record<any, string> = {
+  ONLINE:     'bg-blue-50 text-blue-600 border border-blue-100',
+  PRESENCIAL: 'bg-green-50 text-green-600 border border-green-100',
+  Híbrido:    'bg-purple-50 text-purple-600 border border-purple-100',
+}
+const rolBadge: Record<string, string> = {
+  ADMIN: 'bg-blue-100 text-[#4B7BF5]',
+  EMPLEADO: 'bg-green-100 text-green-700',
+  INSTRUCTOR: 'bg-orange-100 text-orange-600',
+}
+const rolLabel: Record<string, string> = {
+  ADMIN: 'Admin', EMPLEADO: 'Empleado', INSTRUCTOR: 'Instructor',
+}
+const iniciales = (nombre: string, apellido: string) =>
+  `${nombre[0]}${apellido[0]}`.toUpperCase()
 
-type Modalidad = 'Online' | 'Presencial' | 'Híbrido'
-type TipoCurso = 'interno' | 'externo'
+const avatarColor = (id: number) => {
+  const colors = [
+    'from-blue-400 to-blue-600',
+    'from-teal-400 to-teal-600',
+    'from-purple-400 to-purple-600',
+    'from-orange-400 to-orange-500',
+    'from-pink-400 to-pink-600',
+  ]
+  return colors[id % colors.length]
+}
 
-// ── Mock data (reemplazar con API) ──
-const cursos = [
-  {
-    id: 1, nombre: 'Introducción a la Programación',
-    descripcion: 'Fundamentos de programación orientada a objetos con Java. El curso cubre conceptos esenciales como clases, objetos, herencia y polimorfismo, orientados al personal de sistemas.',
-    modalidad: 'Online' as Modalidad, instructor: 'Ricardo Pérez', tipo: 'interno' as TipoCurso,
-    inscritos: 8, capacidad: 20, horas: 16, aula: '',
-    fechaInicio: '2026-03-01', fechaFin: '2026-05-20',
-    horaInicio: '10:00', horaFin: '12:00',
-    departamentos: ['ISC', 'LANI'],
-    estado: 'activo' as 'activo' | 'finalizado',
-    linkExterno: '',
+const formatDate = (date: string | Date) => {
+  if (!date) return 'Sin fecha';
+  const dateStr = date.toString();
+  const fechaParte = dateStr.split(/T| /)[0];
+  if (!fechaParte) return 'Fecha inválida';
+  const [year, month, day] = fechaParte.split('-');
+  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+  if (!year || !month || !day) return 'Formato inválido';
+  return `${day} ${meses[Number(month) - 1]} ${year}`;
+};
+const estadosConfig: Record<string, { label: string, color: string }> = {
+  EN_CURSO: { 
+    label: 'En curso', 
+    color: 'linear-gradient(135deg, #2B4EF0, #4B7BF5)' 
   },
-  {
-    id: 2, nombre: 'Seguridad e Higiene',
-    descripcion: 'Normas de seguridad e higiene en el trabajo universitario. Incluye prevención de riesgos, manejo de materiales peligrosos y ergonomía.',
-    modalidad: 'Presencial' as Modalidad, instructor: 'María López', tipo: 'interno' as TipoCurso,
-    inscritos: 25, capacidad: 25, horas: 8, aula: 'Aula 12',
-    fechaInicio: '2025-12-10', fechaFin: '2026-01-10',
-    horaInicio: '09:00', horaFin: '13:00',
-    departamentos: ['Dirección', 'IE', 'IM', 'ISC', 'LANI', 'Servicios generales'],
-    estado: 'finalizado' as 'activo' | 'finalizado',
-    linkExterno: '',
+  FINALIZADO: { 
+    label: 'Finalizado', 
+    color: 'linear-gradient(135deg, #4b5563, #6b7280)' 
   },
-  {
-    id: 3, nombre: 'Protección Civil',
-    descripcion: 'Curso obligatorio de protección civil y primeros auxilios. Cubre simulacros, rutas de evacuación y atención de emergencias básicas.',
-    modalidad: 'Híbrido' as Modalidad, instructor: 'Carlos Ruiz', tipo: 'interno' as TipoCurso,
-    inscritos: 30, capacidad: 30, horas: 12, aula: 'Auditorio',
-    fechaInicio: '2025-11-01', fechaFin: '2026-02-15',
-    horaInicio: '08:00', horaFin: '11:00',
-    departamentos: ['Dirección', 'IM', 'Servicios generales'],
-    estado: 'finalizado' as 'activo' | 'finalizado',
-    linkExterno: '',
-  },
-  {
-    id: 4, nombre: 'Derechos Humanos CNDH',
-    descripcion: 'Curso externo de la Comisión Nacional de Derechos Humanos. Contenido enfocado en el marco normativo de derechos humanos aplicado al ámbito universitario.',
-    modalidad: 'Online' as Modalidad, instructor: '—', tipo: 'externo' as TipoCurso,
-    inscritos: 6, capacidad: 50, horas: 20, aula: '',
-    fechaInicio: '2026-02-01', fechaFin: '2026-04-30',
-    horaInicio: '', horaFin: '',
-    departamentos: ['Dirección', 'IE', 'IM', 'ISC', 'LANI', 'Servicios generales'],
-    estado: 'activo' as 'activo' | 'finalizado',
-    linkExterno: 'https://www.cndh.org.mx',
-  },
-]
+  POR_INSCRIBIR: { 
+    label: 'Por inscribir', 
+    color: 'linear-gradient(135deg, #F59E0B, #D97706)'
+  }
+}
+const configEstado = computed(() => {
+  const estado = curso.value?.estado?.toUpperCase()
+  if (!estado) return { label: 'Cargando...', color: '#9ca3af' }
+  return estadosConfig[estado] || { label: 'Desconocido', color: '#9ca3af' }
+})
+
+const completados  = computed(() => curso.value?.empleados?.filter((u : any) => u?.estado === 'VALIDADO').length)
+const enProgreso   = computed(() => curso.value?.empleados?.filter((u : any) => u?.estado === 'POR_VALIDAR').length)
+const noinscrit    = computed(() => curso.value?.empleados?.filter((u : any) => u?.estado === null).length + enProgreso.value)
+const faltantes    = computed(() => (curso?.value?.capacidad) - curso.value?.empleados?.length || 0)
+const porcentaje   = computed(() =>
+  curso.value ? Math.round((curso.value?.empleados?.length / curso.value?.capacidad) * 100) : 0
+)
+
+const sinDocumento = computed(() => curso.value?.empleados?.filter((u : any) => u?.estado === null).length || 0 )
+const pendientesDoc    = computed(() => curso.value?.empleados?.filter((u : any) => u?.estado === 'POR_VALIDAR').length || 0 )
+const validadosDoc     = computed(() => curso.value?.empleados?.filter((u : any) => u?.estado === 'VALIDADO').length || 0 )
+
 
 type DocEstado = 'sin_documento' | 'pendiente' | 'validado'
 
-const usuariosMock = [
-  {
-    id: 1, nombre: 'Cristian Geovani', apellido: 'Torres', email: 'cgeovani@itesca.edu.mx',
-    rol: 'admin', departamento: 'Dirección', activo: true,
-    cursosAnio: [
-      { cursoId: 3, estado: 'completado' as 'completado' | 'en progreso', fechaTermino: '15 Feb 2026', constanciaEmitida: true, docEstado: 'sin_documento' as DocEstado },
-      { cursoId: 4, estado: 'en progreso' as 'completado' | 'en progreso', fechaTermino: '30 Abr 2026', constanciaEmitida: false, docEstado: 'pendiente' as DocEstado },
-    ],
-  },
-  {
-    id: 2, nombre: 'Ricardo', apellido: 'Pérez', email: 'rperez@itesca.edu.mx',
-    rol: 'instructor', departamento: 'ISC', activo: true,
-    cursosAnio: [
-      { cursoId: 2, estado: 'completado' as 'completado' | 'en progreso', fechaTermino: '10 Ene 2026', constanciaEmitida: false, docEstado: 'sin_documento' as DocEstado },
-    ],
-  },
-  {
-    id: 3, nombre: 'Ana', apellido: 'García', email: 'agarcia@itesca.edu.mx',
-    rol: 'empleado', departamento: 'LANI', activo: true,
-    cursosAnio: [
-      { cursoId: 1, estado: 'en progreso' as 'completado' | 'en progreso', fechaTermino: '20 May 2026', constanciaEmitida: false, docEstado: 'sin_documento' as DocEstado },
-      { cursoId: 3, estado: 'completado' as 'completado' | 'en progreso', fechaTermino: '15 Feb 2026', constanciaEmitida: false, docEstado: 'sin_documento' as DocEstado },
-      { cursoId: 4, estado: 'completado' as 'completado' | 'en progreso', fechaTermino: '01 Mar 2026', constanciaEmitida: false, docEstado: 'validado' as DocEstado },
-    ],
-  },
-  {
-    id: 4, nombre: 'María', apellido: 'López', email: 'mlopez@itesca.edu.mx',
-    rol: 'instructor', departamento: 'IM', activo: true,
-    cursosAnio: [],
-  },
-  {
-    id: 5, nombre: 'José', apellido: 'Martínez', email: 'jmartinez@itesca.edu.mx',
-    rol: 'empleado', departamento: 'IE', activo: false,
-    cursosAnio: [
-      { cursoId: 2, estado: 'completado' as 'completado' | 'en progreso', fechaTermino: '10 Ene 2026', constanciaEmitida: true, docEstado: 'sin_documento' as DocEstado },
-    ],
-  },
-]
-
-const curso = computed(() => cursos.find(c => c.id === cursoId) ?? null)
-
-type InscritoBase = (typeof usuariosMock)[0] & {
-  estado: 'completado' | 'en progreso'
-  fechaTermino: string
-  constanciaEmitida: boolean
-  docEstado: DocEstado
-}
 
 // Estado reactivo para constancias y documentos (simula cambios sin API)
 const constanciasEmitidas = reactive<Record<number, boolean>>({})
 const docEstados = reactive<Record<number, DocEstado>>({})
 
-// Usuarios inscritos en este curso
-const inscritos = computed<InscritoBase[]>(() =>
-  usuariosMock
-    .map(u => {
-      const entrada = u.cursosAnio.find(c => c.cursoId === cursoId)
-      if (!entrada) return null
-      return {
-        ...u,
-        estado:             entrada.estado,
-        fechaTermino:       entrada.fechaTermino,
-        constanciaEmitida:  constanciasEmitidas[u.id] ?? entrada.constanciaEmitida,
-        docEstado:          docEstados[u.id]           ?? entrada.docEstado,
-      }
-    })
-    .filter(Boolean) as InscritoBase[]
-)
+
 
 // Acciones internas
 const emitirConstancia = (userId: number) => {
@@ -147,64 +111,16 @@ const verDocumento = (userId: number) => {
   console.log('Ver documento usuario', userId)
 }
 
-// Contadores doc externo
-const sinDocumento  = computed(() => inscritos.value.filter(u => u.docEstado === 'sin_documento').length)
-const pendienteDoc  = computed(() => inscritos.value.filter(u => u.docEstado === 'pendiente').length)
-const validadoDoc   = computed(() => inscritos.value.filter(u => u.docEstado === 'validado').length)
 
-const completados  = computed(() => inscritos.value.filter(u => u.estado === 'completado').length)
-const enProgreso   = computed(() => inscritos.value.filter(u => u.estado === 'en progreso').length)
-const faltantes    = computed(() => (curso.value?.capacidad ?? 0) - inscritos.value.length)
-const porcentaje   = computed(() =>
-  curso.value ? Math.round((inscritos.value.length / curso.value.capacidad) * 100) : 0
-)
 
 // Tab activa
 const tab = ref<'informacion' | 'inscritos'>('informacion')
 
 // Búsqueda en inscritos
 const busqueda = ref('')
-const inscritosFiltrados = computed(() =>
-  inscritos.value.filter(u => {
-    const q = busqueda.value.toLowerCase()
-    return !q || `${u.nombre} ${u.apellido} ${u.email} ${u.departamento}`.toLowerCase().includes(q)
-  })
-)
 
-// Helpers visuales
-const modalidadBadge: Record<Modalidad, string> = {
-  Online:     'bg-blue-50 text-blue-600 border border-blue-100',
-  Presencial: 'bg-green-50 text-green-600 border border-green-100',
-  Híbrido:    'bg-purple-50 text-purple-600 border border-purple-100',
-}
-const rolBadge: Record<string, string> = {
-  admin: 'bg-blue-100 text-[#4B7BF5]',
-  empleado: 'bg-green-100 text-green-700',
-  instructor: 'bg-orange-100 text-orange-600',
-}
-const rolLabel: Record<string, string> = {
-  admin: 'Admin', empleado: 'Empleado', instructor: 'Instructor',
-}
-const iniciales = (nombre: string, apellido: string) =>
-  `${nombre[0]}${apellido[0]}`.toUpperCase()
 
-const avatarColor = (id: number) => {
-  const colors = [
-    'from-blue-400 to-blue-600',
-    'from-teal-400 to-teal-600',
-    'from-purple-400 to-purple-600',
-    'from-orange-400 to-orange-500',
-    'from-pink-400 to-pink-600',
-  ]
-  return colors[id % colors.length]
-}
 
-const formatFecha = (iso: string) => {
-  if (!iso) return '—'
-  const [y, m, d] = iso.split('-')
-  const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-  return `${Number(d)} ${meses[Number(m) - 1]} ${y}`
-}
 </script>
 
 <template>
@@ -214,7 +130,7 @@ const formatFecha = (iso: string) => {
     <div class="flex items-center gap-2 text-xs text-gray-400 mb-5">
       <NuxtLink to="/admin" class="hover:text-[#4B7BF5] transition">Dashboard</NuxtLink>
       <span>/</span>
-      <span class="text-gray-500 font-medium truncate">{{ curso.nombre }}</span>
+      <span class="text-gray-500 font-medium truncate">{{ curso?.nombre }}</span>
     </div>
 
     <!-- Header del curso -->
@@ -223,7 +139,7 @@ const formatFecha = (iso: string) => {
 
         <!-- Ícono -->
         <div class="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
-          :style="curso.tipo === 'interno' ? 'background: linear-gradient(135deg, #2B4EF0, #4B7BF5)' : 'background: linear-gradient(135deg, #FF8B5E, #F5C242)'">
+          :style="curso?.tipo === 'INTERNO' ? 'background: linear-gradient(135deg, #2B4EF0, #4B7BF5)' : 'background: linear-gradient(135deg, #FF8B5E, #F5C242)'">
           <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
               d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
@@ -233,22 +149,22 @@ const formatFecha = (iso: string) => {
         <!-- Nombre y badges -->
         <div class="flex-1 min-w-0">
           <div class="flex flex-wrap items-center gap-2 mb-1.5">
-            <h1 class="text-xl font-bold text-gray-900">{{ curso.nombre }}</h1>
-            <span :class="['text-xs font-semibold px-2.5 py-1 rounded-full', curso.tipo === 'interno' ? 'bg-blue-100 text-[#4B7BF5]' : 'bg-orange-100 text-orange-600']">
-              {{ curso.tipo === 'interno' ? 'Interno' : 'Externo' }}
+            <h1 class="text-xl font-bold text-gray-900">{{ curso?.nombre }}</h1>
+            <span :class="['text-xs font-semibold px-2.5 py-1 rounded-full', curso?.tipo === 'INTERNO' ? 'bg-blue-100 text-[#4B7BF5]' : 'bg-orange-100 text-orange-600']">
+              {{ curso?.tipo === 'INTERNO' ? 'Interno' : 'Externo' }}
             </span>
-            <span :class="['text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1', curso.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500']">
-              <span :class="['w-1.5 h-1.5 rounded-full inline-block', curso.estado === 'activo' ? 'bg-green-500' : 'bg-gray-400']"></span>
-              {{ curso.estado === 'activo' ? 'En curso' : 'Finalizado' }}
+            <span :class="['text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1', `background: ${configEstado.color}`]">
+              <span :class="['w-1.5 h-1.5 rounded-full inline-block', `background: ${configEstado.color}`]"></span>
+              {{ configEstado.label }}
             </span>
           </div>
-          <p class="text-sm text-gray-400">{{ curso.descripcion }}</p>
+          <p class="text-sm text-gray-400">{{ curso?.descripcion }}</p>
         </div>
 
         <!-- Stats rápidos (desktop) -->
         <div class="hidden sm:flex gap-6 flex-shrink-0 text-center">
           <div>
-            <p class="text-2xl font-bold text-gray-900">{{ inscritos.length }}</p>
+            <p class="text-2xl font-bold text-gray-900">{{ curso?.empleados?.length }}</p>
             <p class="text-xs text-gray-400">Inscritos</p>
           </div>
           <div>
@@ -266,11 +182,11 @@ const formatFecha = (iso: string) => {
       <div class="mt-5 pt-4 border-t border-gray-100">
         <div class="flex justify-between text-xs text-gray-400 mb-1.5">
           <span>Ocupación</span>
-          <span class="font-semibold text-gray-600">{{ inscritos.length }} / {{ curso.capacidad }} · {{ porcentaje }}%</span>
+          <span class="font-semibold text-gray-600">{{ curso?.empleados?.length || 0 }} / {{ curso?.capacidad || 0 }} · {{ porcentaje }}%</span>
         </div>
         <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
           <div class="h-full rounded-full transition-all duration-500"
-            :style="{ width: `${porcentaje}%`, background: curso.tipo === 'interno' ? 'linear-gradient(90deg, #2B4EF0, #5B9CF8)' : 'linear-gradient(90deg, #FF8B5E, #F5C242)' }">
+            :style="{ width: `${porcentaje}%`, background: curso?.tipo === 'INTERNO' ? 'linear-gradient(90deg, #2B4EF0, #5B9CF8)' : 'linear-gradient(90deg, #FF8B5E, #F5C242)' }">
           </div>
         </div>
       </div>
@@ -297,7 +213,7 @@ const formatFecha = (iso: string) => {
         Inscritos
         <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
           :class="tab === 'inscritos' ? 'bg-blue-50 text-[#4B7BF5]' : 'bg-gray-200 text-gray-400'">
-          {{ inscritos.length }}
+          {{ curso?.empleados?.length || 0 }}
         </span>
       </button>
     </div>
@@ -319,9 +235,9 @@ const formatFecha = (iso: string) => {
             Datos generales
           </h2>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div v-if="curso.instructor !== '—'" class="flex flex-col gap-0.5">
+            <div v-if="curso.tipo !== 'EXTERNO'" class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Instructor</span>
-              <span class="text-sm font-semibold text-gray-800">{{ curso.instructor }}</span>
+              <span class="text-sm font-semibold text-gray-800">{{ curso.instructor.nombres }} {{ curso.instructor.apellidos }}</span>
             </div>
             <div class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Modalidad</span>
@@ -329,16 +245,16 @@ const formatFecha = (iso: string) => {
             </div>
             <div class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Duración</span>
-              <span class="text-sm font-semibold text-gray-800">{{ curso.horas }} horas</span>
+              <span class="text-sm font-semibold text-gray-800">{{ curso.duracionHrs }} horas</span>
             </div>
-            <div v-if="curso.aula" class="flex flex-col gap-0.5">
+            <div v-if="curso.tipo === 'INTERNO' " class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Aula</span>
               <span class="text-sm font-semibold text-gray-800">{{ curso.aula }}</span>
             </div>
-            <div v-if="curso.linkExterno" class="flex flex-col gap-0.5 sm:col-span-2">
+            <div v-if="curso.tipo === 'EXTERNO'" class="flex flex-col gap-0.5 sm:col-span-2">
               <span class="text-xs text-gray-400">Sitio externo</span>
-              <a :href="curso.linkExterno" target="_blank" rel="noopener noreferrer"
-                class="text-sm font-semibold text-[#4B7BF5] hover:underline break-all">{{ curso.linkExterno }}</a>
+              <a :href="curso.aula" target="_blank" rel="noopener noreferrer"
+                class="text-sm font-semibold text-[#4B7BF5] hover:underline break-all">{{ curso.aula }}</a>
             </div>
           </div>
         </div>
@@ -356,19 +272,19 @@ const formatFecha = (iso: string) => {
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Inicio</span>
-              <span class="text-sm font-semibold text-gray-800">{{ formatFecha(curso.fechaInicio) }}</span>
+              <span class="text-sm font-semibold text-gray-800">{{ formatDate(curso?.fechaInicio) }}</span>
             </div>
             <div class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Fin</span>
-              <span class="text-sm font-semibold text-gray-800">{{ formatFecha(curso.fechaFin) }}</span>
+              <span class="text-sm font-semibold text-gray-800">{{ formatDate(curso?.fechaFin) }}</span>
             </div>
-            <div v-if="curso.horaInicio" class="flex flex-col gap-0.5">
+            <div v-if="curso?.horaInicio" class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Hora inicio</span>
-              <span class="text-sm font-semibold text-gray-800">{{ curso.horaInicio }}</span>
+              <span class="text-sm font-semibold text-gray-800">{{ curso?.horaInicio }}</span>
             </div>
-            <div v-if="curso.horaFin" class="flex flex-col gap-0.5">
+            <div v-if="curso?.horaFin" class="flex flex-col gap-0.5">
               <span class="text-xs text-gray-400">Hora fin</span>
-              <span class="text-sm font-semibold text-gray-800">{{ curso.horaFin }}</span>
+              <span class="text-sm font-semibold text-gray-800">{{ curso?.horaFin }}</span>
             </div>
           </div>
         </div>
@@ -390,7 +306,7 @@ const formatFecha = (iso: string) => {
           </h2>
           <div class="grid grid-cols-3 gap-2 mb-4">
             <div class="text-center p-3 rounded-xl bg-gray-50">
-              <p class="text-xl font-bold text-gray-900">{{ inscritos.length }}</p>
+              <p class="text-xl font-bold text-gray-900">{{ curso?.empleados?.length || 0 }}</p>
               <p class="text-[10px] text-gray-400 mt-0.5">Inscritos</p>
             </div>
             <div class="text-center p-3 rounded-xl bg-green-50">
@@ -407,7 +323,7 @@ const formatFecha = (iso: string) => {
               :style="{ width: `${porcentaje}%`, background: 'linear-gradient(90deg, #2B4EF0, #5B9CF8)' }">
             </div>
           </div>
-          <p class="text-xs text-gray-400 text-right">{{ porcentaje }}% de {{ curso.capacidad }} lugares</p>
+          <p class="text-xs text-gray-400 text-right">{{ porcentaje }}% de {{ curso?.capacidad || 0 }} lugares</p>
         </div>
 
         <!-- Adscripciones -->
@@ -421,9 +337,9 @@ const formatFecha = (iso: string) => {
             Adscripciones
           </h2>
           <div class="flex flex-wrap gap-2">
-            <span v-for="dep in curso.departamentos" :key="dep"
+            <span v-for="dep in curso?.adscripciones" :key="dep"
               class="text-xs font-semibold px-3 py-1.5 rounded-xl bg-gray-100 text-gray-600">
-              {{ dep }}
+              {{ dep?.adscripcion?.clave }}
             </span>
           </div>
         </div>
@@ -445,7 +361,7 @@ const formatFecha = (iso: string) => {
         </div>
 
         <!-- Stats internos -->
-        <template v-if="curso.tipo === 'interno'">
+        <template v-if="curso?.tipo === 'INTERNO'">
           <div class="flex gap-2 flex-shrink-0">
             <div class="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-green-50 text-green-700">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
@@ -467,11 +383,11 @@ const formatFecha = (iso: string) => {
             </div>
             <div class="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-yellow-50 text-yellow-700">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-              {{ pendienteDoc }} por validar
+              {{ pendientesDoc }} por validar
             </div>
             <div class="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-green-50 text-green-700">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
-              {{ validadoDoc }} validados
+              {{ validadosDoc }} validados
             </div>
           </div>
         </template>
@@ -489,41 +405,55 @@ const formatFecha = (iso: string) => {
               <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Fecha</th>
               <!-- Columna contextual según tipo -->
               <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                {{ curso.tipo === 'interno' ? 'Constancia' : 'Documento' }}
+                {{ curso.tipo === 'INTERNO' ? 'Constancia' : 'Documento' }}
               </th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-50">
-            <tr v-for="u in inscritosFiltrados" :key="u.id" class="hover:bg-gray-50 transition">
+            <tr v-for="u in curso?.empleados" :key="u.id" class="hover:bg-gray-50 transition">
               <td class="px-5 py-4">
                 <div class="flex items-center gap-3">
                   <div :class="['w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold flex-shrink-0 bg-gradient-to-br', avatarColor(u.id)]">
-                    {{ iniciales(u.nombre, u.apellido) }}
+                    {{ iniciales(u?.usuario?.nombres, u?.usuario?.apellidos) }}
                   </div>
                   <div>
-                    <p class="text-sm font-semibold text-gray-900">{{ u.nombre }} {{ u.apellido }}</p>
-                    <p class="text-xs text-gray-400">{{ u.email }}</p>
+                    <p class="text-sm font-semibold text-gray-900">{{ u?.usuario?.nombres }} {{ u?.usuario?.apellidos }}</p>
+                    <p class="text-xs text-gray-400">{{ u?.usuario?.correo }}</p>
                   </div>
                 </div>
               </td>
-              <td class="px-5 py-4 text-sm text-gray-600">{{ u.departamento }}</td>
+              <td class="px-5 py-4 text-sm text-gray-600">{{ u?.usuario?.adscripcion?.clave }}</td>
               <td class="px-5 py-4">
-                <span :class="['text-xs font-semibold px-2.5 py-1 rounded-full', rolBadge[u.rol]]">{{ rolLabel[u.rol] }}</span>
+                <span :class="['text-xs font-semibold px-2.5 py-1 rounded-full', rolBadge[u?.usuario?.rol]]">{{ rolLabel[u?.usuario?.rol] }}</span>
               </td>
               <td class="px-5 py-4">
-                <span :class="['inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full', u.estado === 'completado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700']">
-                  <span :class="['w-1.5 h-1.5 rounded-full', u.estado === 'completado' ? 'bg-green-500' : 'bg-yellow-500']"></span>
-                  {{ u.estado === 'completado' ? 'Completado' : 'En progreso' }}
+                <span :class="[
+                  'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full',
+                  !u?.estado ? 'bg-blue-100 text-blue-700' 
+                    : u.estado === 'VALIDADO' 
+                      ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                ]">
+                  <span :class="[
+                    'w-1.5 h-1.5 rounded-full',
+                    !u?.estado ? 'bg-blue-500' 
+                      : u.estado === 'VALIDADO' 
+                        ? 'bg-green-500' : 'bg-yellow-500'
+                  ]"></span>
+                  {{ 
+                    !u?.estado ? 'Inscrito' 
+                      : u.estado === 'VALIDADO' 
+                        ? 'Completado' : 'En progreso' 
+                  }}
                 </span>
               </td>
-              <td class="px-5 py-4 text-sm text-gray-500">{{ u.fechaTermino }}</td>
+              <td class="px-5 py-4 text-sm text-gray-500">{{ formatDate(u?.fechaSubida) || 'Sin fecha' }}</td>
 
               <!-- ── Columna CONSTANCIA (interno) ── -->
-              <td v-if="curso.tipo === 'interno'" class="px-5 py-4">
-                <template v-if="u.estado !== 'completado'">
+              <td v-if="curso?.tipo === 'INTERNO'" class="px-5 py-4">
+                <template v-if="u?.calificacion !== 'REPROBADO'">
                   <span class="text-xs text-gray-300 font-medium">—</span>
                 </template>
-                <template v-else-if="u.constanciaEmitida">
+                <template v-else-if="u?.constancia">
                   <button @click="verConstancia(u.id)"
                     class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-50 text-[#4B7BF5] hover:bg-blue-100 transition">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
@@ -543,13 +473,13 @@ const formatFecha = (iso: string) => {
               <!-- ── Columna DOCUMENTO (externo) ── -->
               <td v-else class="px-5 py-4">
                 <!-- Sin documento -->
-                <span v-if="u.docEstado === 'sin_documento'"
+                <span v-if="!u.estado"
                   class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg bg-gray-100 text-gray-400">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                   Sin documento
                 </span>
                 <!-- Pendiente de validación -->
-                <div v-else-if="u.docEstado === 'pendiente'" class="flex items-center gap-2">
+                <div v-else-if="u?.estado === 'POR_VALIDAR'" class="flex items-center gap-2">
                   <button @click="verDocumento(u.id)"
                     class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-yellow-50 text-yellow-700 hover:bg-yellow-100 transition">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
@@ -580,7 +510,7 @@ const formatFecha = (iso: string) => {
                 </div>
               </td>
             </tr>
-            <tr v-if="!inscritosFiltrados.length">
+            <tr v-if="!curso?.empleados?.length">
               <td colspan="6" class="px-5 py-10 text-center text-sm text-gray-400">
                 No se encontraron inscritos con ese criterio
               </td>
@@ -591,56 +521,70 @@ const formatFecha = (iso: string) => {
 
       <!-- Cards mobile -->
       <div class="md:hidden space-y-3">
-        <div v-for="u in inscritosFiltrados" :key="u.id"
+        <div v-for="u in curso?.empleados" :key="u.id"
           class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <div class="flex items-center gap-3 mb-3">
             <div :class="['w-11 h-11 rounded-xl flex items-center justify-center text-white text-sm font-bold flex-shrink-0 bg-gradient-to-br', avatarColor(u.id)]">
-              {{ iniciales(u.nombre, u.apellido) }}
+              {{ iniciales(u?.usuario?.nombres, u?.usuario?.apellidos) }}
             </div>
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-semibold text-gray-900 truncate">{{ u.nombre }} {{ u.apellido }}</p>
-              <p class="text-xs text-gray-400 truncate">{{ u.email }}</p>
+              <p class="text-sm font-semibold text-gray-900 truncate">{{ u?.usuario?.nombres }} {{ u?.usuario?.apellidos }}</p>
+              <p class="text-xs text-gray-400 truncate">{{ u?.usuario?.correo }}</p>
             </div>
-            <span :class="['inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0', u.estado === 'completado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700']">
-              <span :class="['w-1 h-1 rounded-full', u.estado === 'completado' ? 'bg-green-500' : 'bg-yellow-500']"></span>
-              {{ u.estado === 'completado' ? 'Completado' : 'En progreso' }}
+            <span :class="[
+              'inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full',
+              !u?.estado ? 'bg-blue-100 text-blue-700' 
+                : u.estado === 'VALIDADO' 
+                  ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+            ]">
+              <span :class="[
+                'w-1.5 h-1.5 rounded-full',
+                !u?.estado ? 'bg-blue-500' 
+                  : u.estado === 'VALIDADO' 
+                    ? 'bg-green-500' : 'bg-yellow-500'
+              ]"></span>
+              {{ 
+                !u?.estado ? 'Inscrito' 
+                  : u.estado === 'VALIDADO' 
+                    ? 'Completado' : 'En progreso' 
+              }}
             </span>
           </div>
           <div class="flex items-center justify-between gap-2 pt-3 border-t border-gray-100">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full font-medium">{{ u.departamento }}</span>
-              <span class="text-xs text-gray-400">{{ u.fechaTermino }}</span>
+              <span class="text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full font-medium">{{ u?.usuario?.adscripcion?.clave }}</span>
+              <span class="text-xs text-gray-400">{{ formatDate(u?.fechaSubida) || 'Sin Fecha' }}</span>
             </div>
             <!-- Acciones mobile interno -->
-            <template v-if="curso.tipo === 'interno'">
-              <button v-if="u.estado === 'completado' && u.constanciaEmitida" @click="verConstancia(u.id)"
+            <template v-if="curso?.tipo === 'INTERNO'">
+              <button v-if="u?.calificacion === 'APROBADO' && u?.usuario?.constancia" @click="verConstancia(u.id)"
                 class="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-blue-50 text-[#4B7BF5] flex-shrink-0">Ver constancia</button>
-              <button v-else-if="u.estado === 'completado'" @click="emitirConstancia(u.id)"
+              <button v-else-if="u?.calificacion === 'APROBADO'  && !u?.usuario?.constancia" @click="emitirConstancia(u?.usuario?.id)"
                 class="text-[11px] font-semibold px-3 py-1.5 rounded-lg text-white flex-shrink-0"
                 style="background: linear-gradient(135deg, #2B4EF0, #4B7BF5)">Emitir</button>
             </template>
             <!-- Acciones mobile externo -->
             <template v-else>
-              <span v-if="u.docEstado === 'sin_documento'" class="text-[11px] text-gray-300 font-medium flex-shrink-0">Sin doc</span>
-              <div v-else-if="u.docEstado === 'pendiente'" class="flex gap-1.5 flex-shrink-0">
-                <button @click="validarDocumento(u.id)" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700">✓ Validar</button>
-                <button @click="rechazarDocumento(u.id)" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-red-50 text-red-500">✕</button>
+              <span v-if="!u?.estado" class="text-[11px] text-black-300 font-medium flex-shrink-0">Sin doc</span>
+              <div v-else-if="u?.estado === 'POR_VALIDAR'" class="flex gap-1.5 flex-shrink-0">
+                <button @click="validarDocumento(u?.usuario?.id)" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700">✓ Validar</button>
+                <button @click="rechazarDocumento(u?.usuario?.id)" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-red-50 text-red-500">✕ Rechazar</button>
               </div>
               <span v-else class="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-green-100 text-green-700 flex-shrink-0">✓ Validado</span>
             </template>
           </div>
         </div>
-        <div v-if="!inscritosFiltrados.length" class="text-center py-12 text-sm text-gray-400">
+        <div v-if="!curso?.empleados?.length" class="text-center py-12 text-sm text-gray-400">
           No se encontraron inscritos
         </div>
       </div>
 
       <!-- Faltantes -->
-      <div v-if="faltantes > 0 && curso.estado === 'activo'" class="mt-4 flex items-center gap-2 text-xs text-gray-400 bg-white border border-dashed border-gray-200 rounded-xl px-4 py-3">
+      <div v-if="faltantes > 0 && curso?.estado === 'POR_INSCRIBIR'" class="mt-4 flex items-center gap-2 text-xs text-gray-400 bg-white border border-dashed border-gray-200 rounded-xl px-4 py-3">
         <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/>
         </svg>
-        <span>Quedan <strong class="text-gray-600">{{ faltantes }}</strong> lugares disponibles de {{ curso.capacidad }}</span>
+        <span>Quedan <strong class="text-gray-600">{{ faltantes }}</strong> lugares disponibles de {{ curso?.capacidad }}</span>
       </div>
 
     </div>

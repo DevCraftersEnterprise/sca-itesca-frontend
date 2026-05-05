@@ -1,35 +1,53 @@
 <script setup lang="ts">
-const { usuario, logout } = useAuth()
-const META_ANUAL = 3
-
-const rolLabel: Record<string, string> = { admin: 'Admin', empleado: 'Empleado', instructor: 'Instructor' }
+const { user, logout, token } = useAuth()
+const config = useRuntimeConfig()
+// ── Configuración de roles (etiqueta y color) ──
+const rolLabel: Record<string, string> = { 
+  ADMIN: 'Admin', 
+  EMPLEADO: 'Empleado', 
+  INSTRUCTOR: 'Instructor' 
+}
 const rolColor: Record<string, string> = {
-  admin:      'bg-blue-100 text-[#4B7BF5]',
-  empleado:   'bg-green-100 text-green-700',
-  instructor: 'bg-orange-100 text-orange-600',
+  ADMIN:      'bg-blue-100 text-[#4B7BF5]',
+  EMPLEADO:   'bg-green-100 text-green-700',
+  INSTRUCTOR: 'bg-orange-100 text-orange-600',
 }
-
+// ── Cursos del instructor del año actual ──
+const anioActual = new Date().getFullYear()
+const cursos = ref<any>([]);
+onMounted(async () => {
+  try {
+    const data = await fetchMisCursos(config, token.value);
+    cursos.value = data;
+  } catch (error) {}
+});
+const cursosDelAnio = computed(() => {
+  return cursos.value.filter((curso: any) => {
+    const fechaCurso = new Date(curso.fechaFin); 
+    return fechaCurso.getFullYear() === anioActual
+  })
+})
+// ── Panel cuenta ──
 const panelCuenta = ref(false)
-const cambiarPass = ref(false)
-const passActual  = ref(''); const passNueva = ref(''); const passConfirm = ref('')
-const passError   = ref(''); const passOk    = ref(false)
-const showActual  = ref(false); const showNueva = ref(false); const showConfirm = ref(false)
-
-const initiales = computed(() =>
-  usuario.value?.nombre.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase() ?? '?'
+// ── Iniciales para avatar ──
+const initiales = computed(
+  () => user.value?.nombres.split(' ').map((p: string) => p[0]).slice(0, 2).join('').toUpperCase() ?? '?'
 )
-
-const guardarPassword = () => {
-  passError.value = ''
-  if (!passActual.value) { passError.value = 'Ingresa tu contraseña actual.'; return }
-  if (passNueva.value.length < 8) { passError.value = 'La nueva contraseña debe tener al menos 8 caracteres.'; return }
-  if (passNueva.value !== passConfirm.value) { passError.value = 'Las contraseñas no coinciden.'; return }
-  passOk.value = true
-  setTimeout(() => {
-    passOk.value = false; cambiarPass.value = false
-    passActual.value = passNueva.value = passConfirm.value = ''
-  }, 2000)
+// ── Formateo de fecha (solo parte de fecha, sin hora) ──
+const formatDate = (date: string | Date) => {
+  if (!date) return 'Sin fecha';
+  const dateStr = date.toString();
+  const fechaParte = dateStr.split(/T| /)[0];
+  if (!fechaParte) return 'Fecha inválida';
+  const [year, month, day] = fechaParte.split('-');
+  if (!year || !month || !day) return 'Formato inválido';
+  return `${day}/${month}/${year}`;
 }
+// ── Seguridad (cambio de contraseña) ──
+const { 
+  passActual, passNueva, passConfirm, passError, passOk, cambiarPass, 
+  showActual, showNueva, showConfirm, guardarPassword, cancelarCambioPass
+} = useSecurity()
 </script>
 
 <template>
@@ -47,13 +65,13 @@ const guardarPassword = () => {
           <div class="h-6 w-px bg-gray-200 hidden sm:block shrink-0"></div>
           <div class="leading-tight min-w-0">
             <p class="text-sm font-semibold text-gray-900 truncate">
-              <span class="sm:hidden">{{ usuario?.nombre?.split(' ')[0] ?? 'Instructor' }}</span>
-              <span class="hidden sm:inline">¡Hola, <span class="text-[#4B7BF5]">{{ usuario?.nombre ?? 'Instructor' }}</span>!</span>
+              <span class="sm:hidden">{{ user?.nombres?.split(' ')[0] ?? 'Instructor' }}</span>
+              <span class="hidden sm:inline">¡Hola, <span class="text-[#4B7BF5]">{{ user?.nombres ?? 'Instructor' }}</span>!</span>
             </p>
             <p class="text-xs text-gray-400 hidden sm:block">Portal de Instructor</p>
           </div>
-          <span v-if="usuario?.rol" :class="['text-xs font-semibold px-2 py-0.5 rounded-full shrink-0', rolColor[usuario.rol]]">
-            {{ rolLabel[usuario.rol] }}
+          <span v-if="user?.rol" :class="['text-xs font-semibold px-2 py-0.5 rounded-full shrink-0', rolColor[user.rol]]">
+            {{ rolLabel[user.rol] }}
           </span>
         </div>
         <div class="flex items-center gap-1 shrink-0">
@@ -101,12 +119,12 @@ const guardarPassword = () => {
               <div class="w-20 h-20 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-md"
                 style="background:linear-gradient(135deg,#FF8B5E,#F5C242)">{{ initiales }}</div>
               <div>
-                <p class="text-lg font-bold text-gray-900">{{ usuario?.nombre }}</p>
-                <p class="text-sm text-gray-400 mt-0.5">{{ usuario?.email }}</p>
-                <span v-if="usuario?.rol" :class="['inline-block mt-2 text-xs font-semibold px-3 py-1 rounded-full', rolColor[usuario.rol]]">
-                  {{ rolLabel[usuario.rol] }}
+                <p class="text-lg font-bold text-gray-900">{{ user?.nombres }} {{ user?.apellidos }}</p>
+                <p class="text-sm text-gray-400 mt-0.5">{{ user?.correo }}</p>
+                <span v-if="user?.rol" :class="['inline-block mt-2 text-xs font-semibold px-3 py-1 rounded-full', rolColor[user.rol]]">
+                  {{ rolLabel[user.rol] }}
                 </span>
-                <p v-if="usuario?.departamento" class="text-xs text-gray-400 mt-1">{{ usuario.departamento }}</p>
+                <p v-if="user?.adscripcion" class="text-xs text-gray-400 mt-1">{{ user?.adscripcion }}</p>
               </div>
             </div>
 
@@ -128,29 +146,15 @@ const guardarPassword = () => {
               </div>
             </div>
 
-            <!-- Avance anual (cursos propios como empleado) -->
+            <!-- Avance anual (cursos propios como instructor) -->
             <div class="space-y-3">
               <div class="flex items-center justify-between">
                 <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Avance {{ new Date().getFullYear() }}</p>
-                <span class="text-xs text-gray-400">Histórico: <span class="font-semibold text-gray-700">{{ usuario?.cursosHistorico ?? 0 }} cursos</span></span>
+                <span class="text-xs text-gray-400">Histórico: <span class="font-semibold text-gray-700">{{ cursosDelAnio?.length ?? 0 }} cursos</span></span>
               </div>
-              <div class="bg-gray-50 rounded-xl p-4 space-y-3">
-                <div class="flex items-end justify-between mb-1">
-                  <span class="text-xs text-gray-500">Meta anual</span>
-                  <span class="text-sm font-bold" :class="(usuario?.cursosAnio?.length ?? 0) >= META_ANUAL ? 'text-green-600' : 'text-gray-700'">
-                    {{ usuario?.cursosAnio?.length ?? 0 }}/{{ META_ANUAL }} <span class="text-xs font-normal text-gray-400">cursos</span>
-                  </span>
-                </div>
-                <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div class="h-full rounded-full transition-all" :style="{
-                    width: `${Math.min(100, Math.round(((usuario?.cursosAnio?.length ?? 0) / META_ANUAL) * 100))}%`,
-                    background: (usuario?.cursosAnio?.length ?? 0) >= META_ANUAL ? 'linear-gradient(90deg,#7DD87A,#4ade80)' : 'linear-gradient(90deg,#F5C242,#fbbf24)'
-                  }"></div>
-                </div>
-              </div>
-              <div v-if="(usuario?.cursosAnio?.length ?? 0) === 0" class="text-xs text-gray-400 text-center py-2">Sin cursos registrados este año.</div>
+              <div v-if="(cursosDelAnio?.length ?? 0) === 0" class="text-xs text-gray-400 text-center py-2">Sin cursos registrados este año.</div>
               <div v-else class="space-y-2">
-                <div v-for="(c, i) in usuario?.cursosAnio" :key="i"
+                <div v-for="c in cursosDelAnio" :key="c.id"
                   class="flex items-start gap-3 bg-white rounded-xl border border-gray-100 px-3 py-2.5 shadow-sm">
                   <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
                     :style="c.tipo === 'interno' ? 'background:linear-gradient(135deg,#2B4EF0,#4B7BF5)' : 'background:linear-gradient(135deg,#FF8B5E,#F5C242)'">
@@ -160,11 +164,18 @@ const guardarPassword = () => {
                   </div>
                   <div class="flex-1 min-w-0">
                     <p class="text-xs font-semibold text-gray-800 truncate">{{ c.nombre }}</p>
-                    <p class="text-[11px] text-gray-400 mt-0.5">{{ c.modalidad }} · {{ c.fechaTermino }}</p>
+                    <p class="text-[11px] text-gray-400 mt-0.5">{{ c.modalidad === 'ONLINE' ? 'Online' : 'Presencial' }} · {{formatDate(c.fechaFin) }}</p>
                   </div>
                   <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5"
-                    :class="c.estado === 'completado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'">
-                    {{ c.estado === 'completado' ? 'Completado' : 'En progreso' }}
+                    :class="{
+                    'bg-green-100 text-green-700': c.estado === 'FINALIZADO',
+                    'bg-blue-100 text-blue-700': c.estado === 'EN_CURSO',
+                    'bg-yellow-100 text-yellow-700': c.estado === 'POR_INSCRIBIR'
+                    }">
+                    {{ 
+                      c.estado === 'FINALIZADO' ? 'Finalizado' : 
+                      c.estado === 'EN_CURSO' ? 'En curso' : 'Inscripciones' 
+                    }}
                   </span>
                 </div>
               </div>
@@ -174,7 +185,7 @@ const guardarPassword = () => {
             <div class="space-y-3">
               <div class="flex items-center justify-between">
                 <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Seguridad</p>
-                <button @click="cambiarPass = !cambiarPass; passError = ''; passOk = false"
+                <button @click="cambiarPass ? cancelarCambioPass() : cambiarPass = true; passError = ''; passOk = false"
                   class="text-xs font-semibold text-[#4B7BF5] hover:text-[#2B4EF0] transition">
                   {{ cambiarPass ? 'Cancelar' : 'Cambiar contraseña' }}
                 </button>
@@ -220,6 +231,12 @@ const guardarPassword = () => {
                     style="background:linear-gradient(135deg,#2B4EF0,#4B7BF5)">Guardar contraseña</button>
                 </div>
               </Transition>
+              <div v-if="!cambiarPass" class="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+                <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+                <p class="text-xs text-gray-500">Tu contraseña está protegida. Cámbiala periódicamente.</p>
+              </div>
             </div>
           </div>
 
@@ -233,7 +250,9 @@ const guardarPassword = () => {
             </button>
           </div>
         </aside>
+
       </Transition>
+      
     </Teleport>
   </div>
 </template>

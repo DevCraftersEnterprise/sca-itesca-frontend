@@ -3,7 +3,7 @@
 const { isAuthenticated, rol } = useAuth()
 
 if (isAuthenticated.value) {
-  const destinos = { admin: '/admin', empleado: '/empleado', instructor: '/instructor' }
+  const destinos: Record<string, string> = { ADMIN: '/admin', EMPLEADO: '/empleado', INSTRUCTOR: '/instructor' }
   navigateTo(destinos[rol.value!])
 } else {
   navigateTo('/login')

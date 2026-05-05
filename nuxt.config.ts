@@ -9,4 +9,9 @@ export default defineNuxtConfig({
       tailwindcss(),
     ],
   },
+  runtimeConfig: {
+    public: {
+      apiBaseUrl: process.env.apibaseurl,
+    },
+  },
 })

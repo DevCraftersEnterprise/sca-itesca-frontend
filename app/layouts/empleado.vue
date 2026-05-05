@@ -1,45 +1,99 @@
 <script setup lang="ts">
-const { usuario, logout } = useAuth()
-const META_ANUAL = 3 // internos(2) + externos(1)
-
+import { ref } from 'vue'
+const { user, logout, token } = useAuth()
+const META_ANUAL = 3
+const config = useRuntimeConfig()
+// ── Mapeo de roles para mostrar etiquetas legibles y colores asociados ──
 const rolLabel: Record<string, string> = {
-  admin: 'Admin',
-  empleado: 'Empleado',
-  instructor: 'Instructor',
+  ADMIN: 'Admin',
+  EMPLEADO: 'Empleado',
+  INSTRUCTOR: 'Instructor',
 }
 const rolColor: Record<string, string> = {
-  admin: 'bg-blue-100 text-[#4B7BF5]',
-  empleado: 'bg-green-100 text-green-700',
-  instructor: 'bg-orange-100 text-orange-600',
+  ADMIN: 'bg-blue-100 text-[#4B7BF5]',
+  EMPLEADO: 'bg-green-100 text-green-700',
+  INSTRUCTOR: 'bg-orange-100 text-orange-600',
 }
-
+// ── Formateo de fecha (solo parte de fecha, sin hora) ──
+const formatDate = (date: string | Date) => {
+  if (!date) return 'Sin fecha';
+  const dateStr = date.toString();
+  const fechaParte = dateStr.split(/T| /)[0];
+  if (!fechaParte) return 'Fecha inválida';
+  const [year, month, day] = fechaParte.split('-');
+  if (!year || !month || !day) return 'Formato inválido';
+  return `${day}/${month}/${year}`;
+};
+// ── Carga de cursos del empleado ──
+interface VistaEmpleado {
+  inscritos: any[];
+  historialAnual: any[];
+  disponibles: any[];
+}
+//listado los cursos en los que el empleado está inscrito, su historial anual de cursos completados y los cursos disponibles para inscripción.
+const { data: cursos } = await useAsyncData(
+  'cursos-v5-ordenado',
+  () => fetchMisCursos(config, token.value) as Promise<VistaEmpleado>,
+  {
+    default: () => ({ inscritos: [], historialAnual: [], disponibles: [] }),
+    watch: [token],
+    transform: (data: any) => {
+      const PRIORIDAD: Record<string, number> = {
+        'EN_CURSO': 1,
+        'POR_INSCRIBIR': 2,
+        'FINALIZADO': 3
+      };
+      const ordenarLista = (lista: any[]) => {
+        if (!lista) return [];
+        return [...lista].sort((a, b) => {
+          const pesoA = PRIORIDAD[a.estado] || 99;
+          const pesoB = PRIORIDAD[b.estado] || 99;
+          return pesoA - pesoB;
+        });
+      };
+      return {
+        ...data,
+        inscritos: ordenarLista(data.inscritos),
+        historialAnual: ordenarLista(data.historialAnual),
+        disponibles: ordenarLista(data.disponibles),
+      };
+    }
+  }
+)
 // ── Panel cuenta ──
 const panelCuenta = ref(false)
-const cambiarPass = ref(false)
-const passActual  = ref('')
-const passNueva   = ref('')
-const passConfirm = ref('')
-const passError   = ref('')
-const passOk      = ref(false)
-const showActual  = ref(false)
-const showNueva   = ref(false)
-const showConfirm = ref(false)
-
+// ── Iniciales para avatar ──
 const initiales = computed(
-  () => usuario.value?.nombre.split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase() ?? '?'
+  () => user.value?.nombres.split(' ').map((p: string) => p[0]).slice(0, 2).join('').toUpperCase() ?? '?'
 )
-
-const guardarPassword = () => {
-  passError.value = ''
-  if (!passActual.value) { passError.value = 'Ingresa tu contraseña actual.'; return }
-  if (passNueva.value.length < 8) { passError.value = 'La nueva contraseña debe tener al menos 8 caracteres.'; return }
-  if (passNueva.value !== passConfirm.value) { passError.value = 'Las contraseñas no coinciden.'; return }
-  passOk.value = true
-  setTimeout(() => {
-    passOk.value = false
-    cambiarPass.value = false
-    passActual.value = passNueva.value = passConfirm.value = ''
-  }, 2000)
+// ── Seguridad (cambio de contraseña) ──
+const { 
+  passActual, passNueva, passConfirm, passError, passOk, cambiarPass, 
+  showActual, showNueva, showConfirm, guardarPassword, cancelarCambioPass
+} = useSecurity()
+// ── Cálculo de metas alcanzadas (cursos internos y externos completados este año) ──
+const metaInterno = cursos?.value.historialAnual.filter((c : any) => 
+  c.tipo === 'INTERNO' && 
+  (c.estado === 'FINALIZADO' || c.estado === 'EN_CURSO') && 
+  c.empleados[0]?.calificacion === 'APROBADO'
+).length
+const metaExterno = cursos?.value.historialAnual.filter((c :any) => 
+  c.tipo === 'EXTERNO' && 
+  (c.estado === 'FINALIZADO' || c.estado === 'EN_CURSO') && 
+  c.empleados[0]?.estado === 'VALIDADO'
+).length
+const totalMetas = (metaInterno >= 2 && metaExterno >= 1) ? 3 : (metaInterno + metaExterno);
+// ── Estado de cursos (para mostrar etiquetas de estado con colores) ──
+type Estado = 'EN_CURSO' | 'POR_INSCRIBIR' | 'FINALIZADO'
+const estadoConfig: Record<Estado, { label: string; cls: string }> = {
+  'EN_CURSO':             { label: 'En progreso',          cls: 'bg-yellow-100 text-yellow-700' },
+  'POR_INSCRIBIR':        { label: 'Inscripciones', cls: 'bg-amber-100 text-amber-700' },
+  'FINALIZADO':           { label: 'Completado',           cls: 'bg-green-100 text-green-700' },
+}
+const estadoOverrides = ref<Record<string, Estado>>({})
+function estadoCurso(c: any): Estado {
+  const st = estadoOverrides.value[c.key] ?? c.estado;
+  return st;
 }
 </script>
 
@@ -61,16 +115,16 @@ const guardarPassword = () => {
           <div class="h-6 w-px bg-gray-200 hidden sm:block flex-shrink-0"></div>
           <div class="leading-tight min-w-0">
             <p class="text-sm font-semibold text-gray-900 truncate">
-              <span class="sm:hidden">{{ usuario?.nombre?.split(' ')[0] ?? 'Usuario' }}</span>
+              <span class="sm:hidden">{{ user?.nombres?.split(' ')[0] ?? 'Usuario' }}</span>
               <span class="hidden sm:inline">
-                ¡Hola, <span class="text-[#4B7BF5]">{{ usuario?.nombre ?? 'Usuario' }}</span>!
+                ¡Hola, <span class="text-[#4B7BF5]">{{ user?.nombres ?? 'Usuario' }}</span>!
               </span>
             </p>
             <p class="text-xs text-gray-400 hidden sm:block">Sistema de Control de Capacitación</p>
           </div>
-          <span v-if="usuario?.rol"
-            :class="['text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0', rolColor[usuario.rol]]">
-            {{ rolLabel[usuario.rol] }}
+          <span v-if="user?.rol"
+            :class="['text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0', rolColor[user.rol]]">
+            {{ rolLabel[user.rol] }}
           </span>
         </div>
 
@@ -127,13 +181,13 @@ const guardarPassword = () => {
                 {{ initiales }}
               </div>
               <div>
-                <p class="text-lg font-bold text-gray-900">{{ usuario?.nombre }}</p>
-                <p class="text-sm text-gray-400 mt-0.5">{{ usuario?.email }}</p>
-                <span v-if="usuario?.rol"
-                  :class="['inline-block mt-2 text-xs font-semibold px-3 py-1 rounded-full', rolColor[usuario.rol]]">
-                  {{ rolLabel[usuario.rol] }}
+                <p class="text-lg font-bold text-gray-900">{{ user?.nombres }} {{ user?.apellidos }}</p>
+                <p class="text-sm text-gray-400 mt-0.5">{{ user?.correo }}</p>
+                <span v-if="user?.rol"
+                  :class="['inline-block mt-2 text-xs font-semibold px-3 py-1 rounded-full', rolColor[user.rol]]">
+                  {{ rolLabel[user.rol] }}
                 </span>
-                <p v-if="usuario?.departamento" class="text-xs text-gray-400 mt-1">{{ usuario.departamento }}</p>
+                <p v-if="user?.adscripcion" class="text-xs text-gray-400 mt-1">{{ user?.adscripcion }}</p>
               </div>
             </div>
 
@@ -160,49 +214,50 @@ const guardarPassword = () => {
             <div class="space-y-3">
               <div class="flex items-center justify-between">
                 <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Avance {{ new Date().getFullYear() }}</p>
-                <span class="text-xs text-gray-400">Histórico: <span class="font-semibold text-gray-700">{{ usuario?.cursosHistorico ?? 0 }} cursos</span></span>
+                <span class="text-xs text-gray-400">Histórico: <span class="font-semibold text-gray-700">{{ cursos?.historialAnual?.length ?? 0 }} cursos</span></span>
               </div>
               <div class="bg-gray-50 rounded-xl p-4 space-y-3">
                 <div class="flex items-end justify-between mb-1">
                   <span class="text-xs text-gray-500">Meta anual</span>
-                  <span class="text-sm font-bold" :class="(usuario?.cursosAnio?.length ?? 0) >= META_ANUAL ? 'text-green-600' : 'text-gray-700'">
-                    {{ usuario?.cursosAnio?.length ?? 0 }}/{{ META_ANUAL }}
+                  <span class="text-sm font-bold" :class="totalMetas >= META_ANUAL ? 'text-green-600' : 'text-gray-700'">
+                    {{ totalMetas }}/{{ META_ANUAL }}
                     <span class="text-xs font-normal text-gray-400 ml-1">cursos</span>
                   </span>
                 </div>
                 <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div class="h-full rounded-full transition-all" :style="{
-                    width: `${Math.min(100, Math.round(((usuario?.cursosAnio?.length ?? 0) / META_ANUAL) * 100))}%`,
-                    background: (usuario?.cursosAnio?.length ?? 0) >= META_ANUAL
+                    width: `${Math.min(100, Math.round(((totalMetas ?? 0) / META_ANUAL) * 100))}%`,
+                    background: (totalMetas ?? 0) >= META_ANUAL
                       ? 'linear-gradient(90deg,#7DD87A,#4ade80)'
-                      : (usuario?.cursosAnio?.length ?? 0) > 0 ? 'linear-gradient(90deg,#F5C242,#fbbf24)' : '#e5e7eb'
+                      : (cursos?.historialAnual?.length ?? 0) > 0 ? 'linear-gradient(90deg,#F5C242,#fbbf24)' : '#e5e7eb'
                   }"></div>
                 </div>
+
                 <div class="flex justify-between text-[11px] text-gray-400">
-                  <span>{{ Math.min(100, Math.round(((usuario?.cursosAnio?.length ?? 0) / META_ANUAL) * 100)) }}% completado</span>
-                  <span>Faltan {{ Math.max(0, META_ANUAL - (usuario?.cursosAnio?.length ?? 0)) }}</span>
+                  <span>{{ Math.min(100, Math.round(((totalMetas) / META_ANUAL) * 100)) }}% completado</span>
+                  <span>Faltan {{ Math.max(0, META_ANUAL - totalMetas) }}</span>
                 </div>
               </div>
-              <div v-if="(usuario?.cursosAnio?.length ?? 0) === 0" class="text-xs text-gray-400 text-center py-3">
+
+              <div v-if="(cursos?.historialAnual?.length ?? 0) === 0" class="text-xs text-gray-400 text-center py-3">
                 Sin cursos registrados este año.
               </div>
               <div v-else class="space-y-2">
-                <div v-for="(c, i) in usuario?.cursosAnio" :key="i"
+                <div v-for="c in cursos.historialAnual" :key="c.id"
                   class="flex items-start gap-3 bg-white rounded-xl border border-gray-100 px-3 py-2.5 shadow-sm">
                   <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-                    :style="c.tipo === 'interno' ? 'background:linear-gradient(135deg,#2B4EF0,#4B7BF5)' : 'background:linear-gradient(135deg,#FF8B5E,#F5C242)'">
+                    :style="c.tipo === 'INTERNO' ? 'background:linear-gradient(135deg,#2B4EF0,#4B7BF5)' : 'background:linear-gradient(135deg,#FF8B5E,#F5C242)'">
                     <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path v-if="c.tipo === 'interno'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                      <path v-if="c.tipo === 'INTERNO'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                       <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
                     </svg>
                   </div>
                   <div class="flex-1 min-w-0">
                     <p class="text-xs font-semibold text-gray-800 leading-snug truncate">{{ c.nombre }}</p>
-                    <p class="text-[11px] text-gray-400 mt-0.5">{{ c.modalidad }} · {{ c.fechaTermino }}</p>
+                    <p class="text-[11px] text-gray-400 mt-0.5">{{ c.modalidad }} · {{ formatDate(c.fechaFin) }}</p>
                   </div>
-                  <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5"
-                    :class="c.estado === 'completado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'">
-                    {{ c.estado === 'completado' ? 'Completado' : 'En progreso' }}
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" :class="estadoConfig[estadoCurso(c)].cls">
+                    {{ estadoConfig[estadoCurso(c)].label }}
                   </span>
                 </div>
               </div>
@@ -212,7 +267,7 @@ const guardarPassword = () => {
             <div class="space-y-3">
               <div class="flex items-center justify-between">
                 <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Seguridad</p>
-                <button @click="cambiarPass = !cambiarPass; passError = ''; passOk = false"
+                <button @click="cambiarPass ? cancelarCambioPass() : cambiarPass = true; passError = ''; passOk = false"
                   class="text-xs font-semibold text-[#4B7BF5] hover:text-[#2B4EF0] transition">
                   {{ cambiarPass ? 'Cancelar' : 'Cambiar contraseña' }}
                 </button>

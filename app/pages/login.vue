@@ -1,14 +1,9 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'auth' })
 
-const { login, isAuthenticated, rol } = useAuth()
+const { login, rol } = useAuth()
 
-if (isAuthenticated.value) {
-  const destinos = { admin: '/admin', empleado: '/empleado', instructor: '/instructor' }
-  navigateTo(destinos[rol.value!])
-}
-
-const form = reactive({ email: '', password: '' })
+const form = reactive({ correo: '', contrasena: '' })
 const error = ref('')
 const cargando = ref(false)
 const mostrarPassword = ref(false)
@@ -18,7 +13,12 @@ const handleLogin = async () => {
   cargando.value = true
   try {
     await login(form)
-    // TODO: redirigir según rol devuelto por la API
+    const destinos: Record<string, string> = {
+      ADMIN: '/admin',
+      EMPLEADO: '/empleado',
+      INSTRUCTOR: '/instructor'
+    }
+    await navigateTo(destinos[rol.value as string] || '/')
   } catch {
     error.value = 'Correo o contraseña incorrectos'
   } finally {
@@ -95,7 +95,7 @@ const handleLogin = async () => {
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1.5">Correo electrónico</label>
             <input
-              v-model="form.email"
+              v-model="form.correo"
               type="email"
               placeholder="nombre@itesca.edu.mx"
               required
@@ -108,7 +108,7 @@ const handleLogin = async () => {
             <label class="block text-sm font-medium text-gray-700 mb-1.5">Contraseña</label>
             <div class="relative">
               <input
-                v-model="form.password"
+                v-model="form.contrasena"
                 :type="mostrarPassword ? 'text' : 'password'"
                 placeholder="••••••••"
                 required
