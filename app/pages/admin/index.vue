@@ -512,7 +512,7 @@ const guardarAdscripcion = async () => {
       method: 'POST',
       headers: { Authorization: `Bearer ${token.value}` },
       body: {
-        clave: formAdscripcion.clave,
+        clave: formAdscripcion.clave.toUpperCase(),
         nombre: formAdscripcion.nombre,
       }
     })

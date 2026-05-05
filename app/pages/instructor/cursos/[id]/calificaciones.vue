@@ -99,8 +99,19 @@ const empleadosOrdenados = computed(() => {
 })
 
 // Generar constancia individual (mock — reemplazar por llamada real a API/PDF)
-const generarConstancia = (alumnoId: number) => {
-  
+const generarConstancia = async (alumnoId: number, tipo: string) => {
+  try {
+    await $fetch(`${config.public.apiBaseUrl}/instructores/${cursoId}/${alumnoId}`, {
+      method: 'GET',
+      data: { tipo },
+      headers: {
+        'Authorization': `Bearer ${token.value}`
+      }
+    })
+    await cargarCurso(cursoId,true)
+  } catch (error) {
+    
+  }
 }
 // Descargar constancias de todos los aprobados en un ZIP simulado (CSV por ahora)
 const descargarTodas = () => {
@@ -247,7 +258,7 @@ const descargarTodas = () => {
             </template>
             <template v-else>
               <!-- Constancia si está aprobado -->
-              <button v-if="alumno.calificacion === 'APROBADO'" @click="generarConstancia(alumno.usuario.id)"
+              <button v-if="alumno.calificacion === 'APROBADO'" @click="generarConstancia(alumno.usuario.id, 'constancia')"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white hover:brightness-110 transition"
                 style="background:linear-gradient(135deg,#4B7BF5,#2B4EF0)">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -255,7 +266,7 @@ const descargarTodas = () => {
                 </svg>
                 Constancia
               </button>
-              <button @click="asignar(alumno.usuario.id, null, alumno.id)"
+              <button v-if="!alumno.constancia" @click="asignar(alumno.usuario.id, null, alumno.id)"
                 class="px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border border-gray-200 text-gray-400 hover:bg-gray-50 transition">
                 Cambiar
               </button>

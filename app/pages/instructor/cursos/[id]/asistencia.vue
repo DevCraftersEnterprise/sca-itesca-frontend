@@ -279,7 +279,7 @@ const empleadosOrdenados = computed(() => {
       <div class="flex-1"></div>
 
       <!-- Nueva sesión -->
-      <div class="relative">
+      <div v-if="curso.estado === 'EN_CURSO'" class="relative">
         <!-- Nueva sesión -->
         <button @click="pickFecha = true"
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-dashed border-gray-300 text-gray-500 hover:border-[#4B7BF5] hover:text-[#4B7BF5] transition">
@@ -333,7 +333,7 @@ const empleadosOrdenados = computed(() => {
       </div>
 
       <!-- Exportar -->
-      <button @click="exportar"
+      <button v-if="curso.estado !== 'POR_INSCRIBIR'" @click="exportar"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-gray-200 text-gray-500 hover:bg-gray-50 transition">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
